@@ -4,4 +4,11 @@ CONFIG -= app_bundle
 CONFIG -= qt
 
 SOURCES += \
-  tagvfs.c
+  tag_fs.c \
+  tag_module.c
+
+HEADERS += \
+  tag_fs.h
+
+DISTFILES += \
+  Makefile

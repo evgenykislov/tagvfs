@@ -1,4 +1,5 @@
-obj-m += tagvfs.o
+obj-m := tagvfs.o
+tagvfs-y := tag_module.o tag_fs.o
 
 PWD := $(CURDIR)
 
