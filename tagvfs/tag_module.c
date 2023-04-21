@@ -15,7 +15,7 @@ static int tagvfs_init(void) {
 static void tagvfs_exit(void) {
   int res = exit_fs();
   if (res != 0) {
-    printk(KERN_WARNING "Error in exit of filesystem: %d", res);
+    printk(KERN_WARNING "Error in exit of filesystem: %d\n", res);
   }
 }
 
