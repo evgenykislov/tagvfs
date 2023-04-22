@@ -9,8 +9,16 @@ extern const struct file_operations tagfs_dir_file_ops;
 
 int tagfs_init_dir(void);
 
-struct dentry* tagfs_create_dir(struct super_block* sb,
-    struct dentry* owner_dir, const struct qstr* dir_name, size_t dir_index);
+/*! Добавляет к негативному dentry новый inode
+\param sb суперблок
+\param owner_de структура dentry, к которой добавляется inode
+\param dir_index номер inode-а, который будет добавлен к dentry
+\param inode_ops структура с inode операциями inode-а (может быть NULL)
+\param file_ops структура с файловыми операциями inode-а (может быть NULL)
+\return либо указатель на созданный inode, либо NULL если есть ошибки */
+struct inode* tagfs_fills_dentry_by_inode(struct super_block* sb,
+    struct dentry* owner_de, size_t dir_index, const struct inode_operations* inode_ops,
+    const struct file_operations* file_ops);
 
 int tagfs_dir_iterate(struct file* f, struct dir_context* dc);
 

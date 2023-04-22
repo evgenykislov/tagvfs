@@ -11,9 +11,22 @@ struct qstr fpath2 = QSTR_INIT("/tagfs/files/m2.mp4", 19);
 struct qstr fpath3 = QSTR_INIT("/tagfs/files/m3.mp4", 19);
 
 
+struct qstr kSpecNameAllFiles = QSTR_INIT("all-files", 9);
+struct qstr kSpecNameFilesWOTags = QSTR_INIT("files-wo-tags", 13);
+struct qstr kSpecNameTags = QSTR_INIT("tags", 4);
+struct qstr kSpecNameControl = QSTR_INIT("control", 7);
 
+
+struct qstr kNullQstr = QSTR_INIT(NULL, 0);
 struct qstr kEmptyQStr = QSTR_INIT("", 0);
 
+/*! Сравнивает две строки. Возвращает 0 в случае равества */
+static int compare_qstr(const struct qstr n1, const struct qstr n2) {
+  if (n1.len != n2.len) {
+    return 1;
+  }
+  return !!memcmp(n1.name, n2.name, n1.len);
+}
 
 int tagfs_init_storage(void) {
   kEmptyQStr.hash = full_name_hash(NULL, kEmptyQStr.name, kEmptyQStr.len);
@@ -60,4 +73,24 @@ const struct qstr* tagfs_get_fname_by_index(ssize_t index) {
     case 2: return &fname3; break;
   }
   return NULL;
+}
+
+
+struct qstr tagfs_get_special_name(enum FSSpecialName name) {
+  switch (name) {
+    case kFSSpecialNameAllFiles: return kSpecNameAllFiles; break;
+    case kFSSpecialNameFilesWOTags: return kSpecNameFilesWOTags; break;
+    case kFSSpecialNameTags: return kSpecNameTags; break;
+    case kFSSpecialNameControl: return kSpecNameControl; break;
+    case kFSSpecialNameUndefined: return kNullQstr; break;
+  }
+  return kNullQstr;
+}
+
+enum FSSpecialName tagfs_get_special_type(struct qstr name) {
+  if (compare_qstr(name, kSpecNameAllFiles) == 0) { return kFSSpecialNameAllFiles; }
+  if (compare_qstr(name, kSpecNameFilesWOTags) == 0) { return kFSSpecialNameFilesWOTags; }
+  if (compare_qstr(name, kSpecNameTags) == 0) { return kFSSpecialNameTags; }
+  if (compare_qstr(name, kSpecNameControl) == 0) { return kFSSpecialNameControl; }
+  return kFSSpecialNameUndefined;
 }

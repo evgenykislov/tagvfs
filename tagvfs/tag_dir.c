@@ -48,22 +48,18 @@ int tagfs_init_dir(void) {
 }
 
 
-struct dentry* tagfs_create_dir(struct super_block* sb,
-    struct dentry* owner_dir, const struct qstr* dir_name, size_t dir_index) {
-  struct dentry* dentry;
+struct inode* tagfs_fills_dentry_by_inode(struct super_block* sb,
+    struct dentry* owner_de, size_t dir_index, const struct inode_operations* inode_ops,
+    const struct file_operations* file_ops) {
   struct inode* inode;
 
-  dentry = d_alloc(owner_dir, dir_name);
   inode = tagfs_create_inode(sb, S_IFDIR | 0755, dir_index);
+  if (!inode) { return NULL; }
 
-  if (!inode) {
-    return NULL;
-  }
-
-  inode->i_fop = &tagfs_dir_file_ops;
-
-  d_add(dentry, inode);
-  return dentry;
+  inode->i_op = inode_ops;
+  inode->i_fop = file_ops;
+  d_add(owner_de, inode);
+  return inode;
 }
 
 

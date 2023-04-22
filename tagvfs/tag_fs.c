@@ -3,6 +3,7 @@
 #include <linux/fs.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
+#include <linux/slab.h>
 #include <linux/string.h>
 
 #include "tag_dir.h"
@@ -13,8 +14,19 @@
 
 const char tagvfs_name[] = "tagvfs";
 
-const size_t kRootIndex = 2;
+static const size_t kRootIndex = 2;
+static const size_t kAllFilesIndex = 3;
+static const size_t kFilesWOTagsIndex = 4;
+static const size_t kTagsIndex = 5;
+static const size_t kControlIndex = 6;
+
 const unsigned long kMagicTag = 0x34562343; //!< Магическое число для идентификации файловой системы
+
+
+struct fs_data {
+  size_t ino_all_files;
+  struct qstr str_all_files;
+};
 
 
 int compare_qstr(unsigned int len, const char* str, const struct qstr* name) {
@@ -32,15 +44,33 @@ const size_t kFileIndex = 12;
 
 
 int tagfs_root_iterate(struct file* f, struct dir_context* dc) {
-  if (!dir_emit_dots(f, dc)) { return 0; }
+  struct qstr name;
 
+  if (!dir_emit_dots(f, dc)) { return -ENOMEM; }
+
+  // Special files
   if (dc->pos == 2) {
-    dir_emit(dc, kDirName.name, kDirName.len, kDirIndex, DT_DIR);
+    name = tagfs_get_special_name(kFSSpecialNameAllFiles);
+    if (name.len == 0) { return -ENOMEM; }
+    dir_emit(dc, name.name, name.len, kAllFilesIndex, DT_DIR);
     dc->pos += 1;
   }
-
   if (dc->pos == 3) {
-    dir_emit(dc, kFileName.name, kFileName.len, kFileIndex, DT_REG);
+    name = tagfs_get_special_name(kFSSpecialNameFilesWOTags);
+    if (name.len == 0) { return -ENOMEM; }
+    dir_emit(dc, name.name, name.len, kFilesWOTagsIndex, DT_DIR);
+    dc->pos += 1;
+  }
+  if (dc->pos == 4) {
+    name = tagfs_get_special_name(kFSSpecialNameTags);
+    if (name.len == 0) { return -ENOMEM; }
+    dir_emit(dc, name.name, name.len, kTagsIndex, DT_DIR);
+    dc->pos += 1;
+  }
+  if (dc->pos == 5) {
+    name = tagfs_get_special_name(kFSSpecialNameControl);
+    if (name.len == 0) { return -ENOMEM; }
+    dir_emit(dc, name.name, name.len, kControlIndex, DT_REG);
     dc->pos += 1;
   }
 
@@ -62,19 +92,35 @@ int tagfs_root_dinit(struct dentry* de) {
 struct dentry* tagfs_root_lookup(struct inode* parent_i, struct dentry* de,
     unsigned int flags) {
   struct inode* inode;
+  enum FSSpecialName nt;
+  struct super_block* sb;
 
-  if (compare_qstr(de->d_name.len, de->d_name.name, &kDirName) == 0) {
-    inode = tagfs_create_inode(parent_i->i_sb, S_IFDIR | 0755, kDirIndex);
-    inode->i_fop = &tagfs_dir_file_ops;
-    inode->i_op = &tagfs_dir_inode_ops;
-    d_add(de, inode);
-    return NULL;
-  }
+  sb = parent_i->i_sb;
 
-  if (compare_qstr(de->d_name.len, de->d_name.name, &kFileName) == 0) {
-    inode = tagfs_create_inode(parent_i->i_sb, S_IFREG | 0755, kFileIndex);
-    d_add(de, inode);
-    return NULL;
+  nt = tagfs_get_special_type(de->d_name);
+  switch (nt) {
+    case kFSSpecialNameAllFiles:
+      if (!tagfs_fills_dentry_by_inode(sb, de, kAllFilesIndex, &tagfs_dir_inode_ops,
+          &tagfs_dir_file_ops)) { return ERR_PTR(-ENOENT); }
+      return NULL;
+      break;
+    case kFSSpecialNameFilesWOTags:
+      if (!tagfs_fills_dentry_by_inode(sb, de, kFilesWOTagsIndex, &tagfs_dir_inode_ops,
+          &tagfs_dir_file_ops)) { return ERR_PTR(-ENOENT); }
+      return NULL;
+      break;
+    case kFSSpecialNameTags:
+      if (!tagfs_fills_dentry_by_inode(sb, de, kTagsIndex, &tagfs_dir_inode_ops,
+          &tagfs_dir_file_ops)) { return ERR_PTR(-ENOENT); }
+      return NULL;
+      break;
+    case kFSSpecialNameControl:
+      inode = tagfs_create_inode(sb, S_IFREG | 0755, kControlIndex);
+      d_add(de, inode);
+      return NULL;
+      break;
+    default:
+      return ERR_PTR(-ENOENT);
   }
 
   return ERR_PTR(-ENOENT);
@@ -105,6 +151,7 @@ static const struct dentry_operations tagfs_common_dentry_ops = {
 
 static int fs_fill_superblock(struct super_block* sb, void* data, int silent) {
   struct inode* root_inode;
+  struct fs_data* fsd;
 
   sb->s_blocksize = PAGE_SIZE;
   sb->s_blocksize_bits = PAGE_SHIFT;
@@ -112,6 +159,9 @@ static int fs_fill_superblock(struct super_block* sb, void* data, int silent) {
   sb->s_magic = kMagicTag;
   sb->s_op = &tagfs_ops;
   sb->s_d_op = &tagfs_common_dentry_ops;
+
+  fsd = kzalloc(sizeof(struct fs_data), GFP_KERNEL);
+  if (!fsd) { return -ENOMEM; }
 
   // Create root inode
   root_inode = tagfs_create_inode(sb, S_IFDIR | 0755, kRootIndex);
@@ -130,6 +180,12 @@ struct dentry* fs_mount(struct file_system_type* fstype, int flags,
     const char* dev_name, void* data) {
   return mount_nodev(fstype, flags, data, fs_fill_superblock);
 }
+
+void fs_kill(struct super_block* sb) {
+  kfree(sb->s_fs_info);
+}
+
+
 
 struct file_system_type fs_type = { .name = tagvfs_name, .mount = fs_mount,
     .kill_sb = generic_shutdown_super, .owner = THIS_MODULE, .next = NULL};

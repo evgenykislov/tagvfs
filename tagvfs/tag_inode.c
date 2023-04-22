@@ -19,7 +19,7 @@ struct inode* tagfs_create_inode(struct super_block* sb, umode_t mode,
   n->i_atime = n->i_ctime = n->i_mtime = current_time(n);
   switch (mode & S_IFMT) {
     case S_IFDIR:
-      inc_nlink(n);
+      set_nlink(n, 2);
       break;
     case S_IFLNK:
       break;
