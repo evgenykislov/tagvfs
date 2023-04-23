@@ -5,22 +5,18 @@
 
 
 int tagfs_dir_iterate(struct file* f, struct dir_context* dc) {
-  printk(KERN_INFO "TODO dir iterate function with file %px, context %px\n", f, dc);
   return 0; // TODO There is no records
 }
 
 int tagfs_dir_open(struct inode *inode, struct file *file) {
-  printk(KERN_INFO "TODO dir open function with inode %px, file %px\n", inode, file);
   return 0;
 }
 
 int tagfs_dir_release(struct inode *inode, struct file *file) {
-  printk(KERN_INFO "TODO dir release function with inode %px, file %px\n", inode, file);
   return 0;
 }
 
 ssize_t tagfs_dir_read(struct file* filp, char __user* buf, size_t siz, loff_t* ppos) {
-  printk(KERN_INFO "TODO dir read function\n");
   return -EISDIR;
 }
 

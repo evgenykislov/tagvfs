@@ -4,6 +4,7 @@
 #include <linux/kernel.h>
 #include <linux/slab.h>
 
+#include "tag_file.h"
 #include "tag_inode.h"
 #include "tag_storage.h"
 
@@ -66,8 +67,9 @@ struct dentry* tagfs_allfiles_dir_lookup(struct inode* dir, struct dentry *de,
   ino = tagfs_get_ino_of_name(de->d_name);
   if (ino == kNotFoundIno) { return ERR_PTR(-ENOENT); }
   sb = dir->i_sb;
-  inode = tagfs_create_inode(sb, S_IFLNK | 0755, ino + kFSRealFilesStartIno);
-  d_add(de, inode);
+
+  inode = tagfs_fills_dentry_by_linkfile_inode(sb, de, ino + kFSRealFilesStartIno);
+  if (!inode) { return ERR_PTR(-ENOMEM); }
   return NULL;
 }
 

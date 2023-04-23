@@ -85,5 +85,19 @@ void tagfs_get_first_name(size_t start_ino, const struct TagMask* mask,
 \return номер файла или kNotFoundIno (если файл не найжен) */
 size_t tagfs_get_ino_of_name(const struct qstr name);
 
+/*! Получить размер файла в байтах
+\param ino номер файла в файловой системе
+\return размер файла в байтах (и может быть нулевым). В случае ошибки возвращается 0. */
+size_t tagfs_get_file_size(size_t ino);
+
+/*! Прочитать данные из файла. Данные читаются бинарные (сырые). Все длины, позиции
+измеряются в байтах.
+\param ino номер файла в фасйловой системе
+\param pos стартовая позиция для чтения
+\param len длина блока для чтения. Должна быть больше 0
+\param buffer буфер под данные
+\return размер прочитанных данных. Если всё хорошо, то соответствует len */
+size_t tagfs_get_file_data(size_t ino, size_t pos, size_t len, void* buffer);
+
 
 #endif // TAG_STORAGE_H

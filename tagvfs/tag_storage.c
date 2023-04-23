@@ -22,6 +22,19 @@ struct qstr kEmptyQStr = QSTR_INIT("", 0);
 
 const size_t kNotFoundIno = (size_t)(-1);
 
+
+/* TODO stub function */
+const struct qstr get_fpath_by_index(ssize_t index) {
+  switch (index) {
+    case 0: return fpath1; break;
+    case 1: return fpath2; break;
+    case 2: return fpath3; break;
+  }
+  return kNullQstr;
+}
+
+
+
 /*! Сравнивает две строки. Возвращает 0 в случае равества */
 static int compare_qstr(const struct qstr n1, const struct qstr n2) {
   if (n1.len != n2.len) {
@@ -78,6 +91,7 @@ const struct qstr tagfs_get_fname_by_index(ssize_t index) {
 }
 
 
+
 struct qstr tagfs_get_special_name(enum FSSpecialName name) {
   switch (name) {
     case kFSSpecialNameAllFiles: return kSpecNameAllFiles; break;
@@ -116,4 +130,26 @@ size_t tagfs_get_ino_of_name(const struct qstr name) {
   if (compare_qstr(name, fname2) == 0) { return 1; }
   if (compare_qstr(name, fname3) == 0) { return 2; }
   return kNotFoundIno;
+}
+
+
+size_t tagfs_get_file_size(size_t ino) {
+  struct qstr data;
+  data = get_fpath_by_index(ino);
+  return data.len;
+}
+
+size_t tagfs_get_file_data(size_t ino, size_t pos, size_t len, void* buffer) {
+  struct qstr data;
+  size_t available;
+  data = get_fpath_by_index(ino);
+  if (pos >= data.len) { return 0; /* TODO error */}
+  if ((pos + len) <= data.len) {
+    available = len;
+  } else {
+    available = data.len - pos;
+  }
+
+  memcpy(buffer, data.name + pos, available);
+  return available;
 }
