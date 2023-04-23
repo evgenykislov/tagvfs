@@ -6,6 +6,7 @@
 #include <linux/slab.h>
 #include <linux/string.h>
 
+#include "tag_allfiles_dir.h"
 #include "tag_dir.h"
 #include "tag_file.h"
 #include "tag_inode.h"
@@ -14,11 +15,11 @@
 
 const char tagvfs_name[] = "tagvfs";
 
-static const size_t kRootIndex = 2;
-static const size_t kAllFilesIndex = 3;
-static const size_t kFilesWOTagsIndex = 4;
-static const size_t kTagsIndex = 5;
-static const size_t kControlIndex = 6;
+static const size_t kRootIndex = kFSSpecialNameStartIno + 1;
+static const size_t kAllFilesIndex = kFSSpecialNameStartIno + 2;
+static const size_t kFilesWOTagsIndex = kFSSpecialNameStartIno + 3;
+static const size_t kTagsIndex = kFSSpecialNameStartIno + 4;
+static const size_t kControlIndex = kFSSpecialNameStartIno + 5;
 
 const unsigned long kMagicTag = 0x34562343; //!< Магическое число для идентификации файловой системы
 
@@ -100,8 +101,8 @@ struct dentry* tagfs_root_lookup(struct inode* parent_i, struct dentry* de,
   nt = tagfs_get_special_type(de->d_name);
   switch (nt) {
     case kFSSpecialNameAllFiles:
-      if (!tagfs_fills_dentry_by_inode(sb, de, kAllFilesIndex, &tagfs_dir_inode_ops,
-          &tagfs_dir_file_ops)) { return ERR_PTR(-ENOENT); }
+      if (!tagfs_fills_dentry_by_inode(sb, de, kAllFilesIndex, &tagfs_allfiles_dir_inode_ops,
+          &tagfs_allfiles_dir_file_ops)) { return ERR_PTR(-ENOENT); }
       return NULL;
       break;
     case kFSSpecialNameFilesWOTags:

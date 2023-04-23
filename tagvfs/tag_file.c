@@ -31,22 +31,15 @@ static struct file_operations tagfs_file_ops = {
   .iterate = tagfs_file_iterate
 };
 
-
-struct dentry* tagfs_create_file(struct super_block* sb,
-    struct dentry* owner_dir, const struct qstr* file_name, size_t file_index) {
-  struct dentry* dentry;
+struct inode* tagfs_fills_file_dentry_by_inode(struct super_block* sb,
+    struct dentry* owner_de, size_t file_index, const struct inode_operations* inode_ops,
+    const struct file_operations* file_ops) {
   struct inode* inode;
 
-  dentry = d_alloc(owner_dir, file_name);
-  inode = tagfs_create_inode(sb, S_IFREG | 0644, file_index);
-
-  if (!inode) {
-    return NULL;
-  }
-
-  dentry->d_op = &simple_dentry_operations;
-  inode->i_fop = &tagfs_file_ops;
-
-  d_add(dentry, inode);
-  return dentry;
+  inode = tagfs_create_inode(sb, S_IFLNK | 0755, file_index);
+  if (!inode) { return NULL; }
+  inode->i_op = inode_ops;
+  inode->i_fop = file_ops;
+  d_add(owner_de, inode);
+  return inode;
 }

@@ -4,6 +4,16 @@
 #include <linux/dcache.h>
 #include <linux/kernel.h>
 
+#include "tag_tag_mask.h"
+
+#define kFSSpecialNameStartIno  0x00000001
+#define kFSSpecialNameFinishIno 0x000000ff
+#define kFSRealFilesStartIno    0x00000100
+#define kFSRealFilesFinishIno   0xefffffff
+#define kFSDirectoriesStartIno  0xf0000100
+#define kFSDirectoriesFinishIno 0xffffffff
+
+
 enum FSSpecialName {
   kFSSpecialNameUndefined = 0,
   kFSSpecialNameAllFiles = 1,
@@ -11,6 +21,8 @@ enum FSSpecialName {
   kFSSpecialNameTags = 3,
   kFSSpecialNameControl = 4
 };
+
+extern const size_t kNotFoundIno;
 
 
 
@@ -41,9 +53,9 @@ ssize_t tagfs_get_files_amount(void);
 /*! Возвращает имя файла по его индексу. Если индекс невалидный или файл удалён,
 то возвращается строка пустой длины
 \param index индекс файла, по которому запрашивается информация
-\return строка с названием файла. Строка может быть NULL. Данные для строки
+\return строка с названием файла. Строка может быть NULL и нулевой длины. Данные для строки
 валидны всегда (до завершения работы) */
-const struct qstr* tagfs_get_fname_by_index(ssize_t index);
+const struct qstr tagfs_get_fname_by_index(ssize_t index);
 
 /*! Возвращает специальное (зарезервированное) имя согласно входному параметру.
  *  Используется для назначения пользовательских названий
@@ -57,5 +69,21 @@ struct qstr tagfs_get_special_name(enum FSSpecialName name);
 \return тип, соответствующий переданному имени. Если имя не найдено, то
 возвращается kFSSpecialNameUndefined */
 enum FSSpecialName tagfs_get_special_type(struct qstr name);
+
+/*! Ищет первое вхождение файла, который имеет номер равный или более start_ino и
+соответствует маске mask. Номера начинаются с нуля, номера уникальны, следующий поиск можно начинать с ранее найденного номера + 1.
+\param start_ino начальный номер, с которого начинать поиск
+\param mask требуемая маска для файла
+\param found_ino найденный номер. Может быть равен start_ino или быть больше.
+Если  файл не найден, то возвращается значение kNotFoundIno.
+\param name найденное имя файла. Имя существует на всё время работы программы. */
+void tagfs_get_first_name(size_t start_ino, const struct TagMask* mask,
+    size_t* found_ino, struct qstr* name);
+
+/* Находит номер файла с именем ino
+\param name имя файла, номер которого нужно получить
+\return номер файла или kNotFoundIno (если файл не найжен) */
+size_t tagfs_get_ino_of_name(const struct qstr name);
+
 
 #endif // TAG_STORAGE_H

@@ -20,6 +20,8 @@ struct qstr kSpecNameControl = QSTR_INIT("control", 7);
 struct qstr kNullQstr = QSTR_INIT(NULL, 0);
 struct qstr kEmptyQStr = QSTR_INIT("", 0);
 
+const size_t kNotFoundIno = (size_t)(-1);
+
 /*! Сравнивает две строки. Возвращает 0 в случае равества */
 static int compare_qstr(const struct qstr n1, const struct qstr n2) {
   if (n1.len != n2.len) {
@@ -66,13 +68,13 @@ ssize_t tagfs_get_files_amount(void) {
   return 3;
 }
 
-const struct qstr* tagfs_get_fname_by_index(ssize_t index) {
+const struct qstr tagfs_get_fname_by_index(ssize_t index) {
   switch (index) {
-    case 0: return &fname1; break;
-    case 1: return &fname2; break;
-    case 2: return &fname3; break;
+    case 0: return fname1; break;
+    case 1: return fname2; break;
+    case 2: return fname3; break;
   }
-  return NULL;
+  return kNullQstr;
 }
 
 
@@ -93,4 +95,25 @@ enum FSSpecialName tagfs_get_special_type(struct qstr name) {
   if (compare_qstr(name, kSpecNameTags) == 0) { return kFSSpecialNameTags; }
   if (compare_qstr(name, kSpecNameControl) == 0) { return kFSSpecialNameControl; }
   return kFSSpecialNameUndefined;
+}
+
+void tagfs_get_first_name(size_t start_ino, const struct TagMask* mask,
+    size_t* found_ino, struct qstr* name) {
+  struct qstr rstr;
+  rstr = tagfs_get_fname_by_index(start_ino);
+  if (rstr.len == 0) {
+    *found_ino = kNotFoundIno;
+    *name = kNullQstr;
+    return;
+  }
+
+  *found_ino = start_ino;
+  *name = rstr;
+}
+
+size_t tagfs_get_ino_of_name(const struct qstr name) {
+  if (compare_qstr(name, fname1) == 0) { return 0; }
+  if (compare_qstr(name, fname2) == 0) { return 1; }
+  if (compare_qstr(name, fname3) == 0) { return 2; }
+  return kNotFoundIno;
 }
