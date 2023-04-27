@@ -16,11 +16,6 @@ int tagfs_dir_release(struct inode *inode, struct file *file) {
   return 0;
 }
 
-ssize_t tagfs_dir_read(struct file* filp, char __user* buf, size_t siz, loff_t* ppos) {
-  return -EISDIR;
-}
-
-
 struct dentry* tagfs_dir_lookup(struct inode* dir, struct dentry *dentry,
     unsigned int flags) {
   return NULL;
@@ -34,14 +29,8 @@ const struct inode_operations tagfs_dir_inode_ops = {
 const struct file_operations tagfs_dir_file_ops = {
   .open = tagfs_dir_open,
   .release = tagfs_dir_release,
-  .read = tagfs_dir_read,
   .iterate = tagfs_dir_iterate
 };
-
-
-int tagfs_init_dir(void) {
-  return 0;
-}
 
 
 struct inode* tagfs_fills_dentry_by_inode(struct super_block* sb,
@@ -49,7 +38,7 @@ struct inode* tagfs_fills_dentry_by_inode(struct super_block* sb,
     const struct file_operations* file_ops) {
   struct inode* inode;
 
-  inode = tagfs_create_inode(sb, S_IFDIR | 0755, dir_index);
+  inode = tagfs_create_inode(sb, S_IFDIR | 0777, dir_index);
   if (!inode) { return NULL; }
 
   inode->i_op = inode_ops;
@@ -66,6 +55,7 @@ void tagfs_printk_dentry(struct dentry* de) {
     return;
   }
   pr_info("  d_name: '%30s'...\n", de->d_name.name);
-  pr_info("  d_flags: %x (0x04 revalidate, 0x08 delete, 0x10 prune, 0x20 disconnected)\n", de->d_flags);
+  pr_info("  d_flags: %x (0x04 revalidate, 0x08 delete, 0x10 prune, 0x20 disconnected)\n",
+      de->d_flags);
   tagfs_printk_inode(de->d_inode, 2);
 }

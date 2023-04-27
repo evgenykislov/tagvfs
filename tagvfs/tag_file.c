@@ -5,13 +5,6 @@
 #include "tag_inode.h"
 #include "tag_storage.h"
 
-struct file_data {
-  size_t ino; //!< Номер файла в файловой системе
-  // Data from file
-  void* data;
-  size_t len;
-};
-
 const char kEmptyLink[] = "";
 
 
@@ -25,6 +18,8 @@ const char* flink_getlink(struct dentry* de, struct inode* inode,
   size_t ino;
   size_t red;
   size_t data_size; //!< Размер данных, выделенный в data без учёта нулевого символа
+
+  pr_info("TODO getlink for ino %u\n", (unsigned int)(inode->i_ino));
 
   if (inode->i_ino < kFSRealFilesStartIno || inode->i_ino > kFSRealFilesFinishIno) {
     return kEmptyLink;
@@ -62,11 +57,18 @@ struct inode* tagfs_fills_dentry_by_linkfile_inode(struct super_block* sb,
     struct dentry* owner_de, size_t file_index) {
   struct inode* inode;
 
-  inode = tagfs_create_inode(sb, S_IFLNK | 0755, file_index);
+  inode = tagfs_create_inode(sb, S_IFLNK | 0777, file_index);
   if (!inode) { return NULL; }
 
   inode->i_op = &linkfile_iops;
   inode->i_fop = &linkfile_fops;
   d_add(owner_de, inode);
   return inode;
+}
+
+void tagfs_set_linkfile_operations_for_inode(struct inode* nod) {
+  if (!nod) { return; }
+
+  nod->i_op = &linkfile_iops;
+  nod->i_fop = &linkfile_fops;
 }

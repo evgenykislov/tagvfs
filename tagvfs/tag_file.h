@@ -15,4 +15,6 @@ struct inode* tagfs_fills_dentry_by_linkfile_inode(struct super_block* sb,
     struct dentry* owner_de, size_t file_index);
 
 
+void tagfs_set_linkfile_operations_for_inode(struct inode* nod);
+
 #endif // TAG_FILE_H

@@ -13,5 +13,7 @@ struct inode* tagfs_create_inode(struct super_block* sb, umode_t mode,
 
 void tagfs_printk_inode(const struct inode* ind, unsigned int indent);
 
+/*! ??? */
+void tagfs_printk_kstat(const struct kstat* stat, unsigned int indent);
 
 #endif // TAG_INODE_H

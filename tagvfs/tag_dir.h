@@ -7,8 +7,6 @@
 extern const struct inode_operations tagfs_dir_inode_ops;
 extern const struct file_operations tagfs_dir_file_ops;
 
-int tagfs_init_dir(void);
-
 /*! Добавляет к негативному dentry новый inode
 \param sb суперблок
 \param owner_de структура dentry, к которой добавляется inode

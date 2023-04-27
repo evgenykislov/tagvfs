@@ -38,12 +38,6 @@ int compare_qstr(unsigned int len, const char* str, const struct qstr* name) {
 }
 
 
-struct qstr kDirName = QSTR_INIT("d01", 3);
-const size_t kDirIndex = 14;
-struct qstr kFileName = QSTR_INIT("f01", 3);
-const size_t kFileIndex = 12;
-
-
 int tagfs_root_iterate(struct file* f, struct dir_context* dc) {
   struct qstr name;
 
@@ -53,25 +47,33 @@ int tagfs_root_iterate(struct file* f, struct dir_context* dc) {
   if (dc->pos == 2) {
     name = tagfs_get_special_name(kFSSpecialNameAllFiles);
     if (name.len == 0) { return -ENOMEM; }
-    dir_emit(dc, name.name, name.len, kAllFilesIndex, DT_DIR);
+    if (!dir_emit(dc, name.name, name.len, kAllFilesIndex, DT_DIR)) {
+      return -ENOMEM;
+    }
     dc->pos += 1;
   }
   if (dc->pos == 3) {
     name = tagfs_get_special_name(kFSSpecialNameFilesWOTags);
     if (name.len == 0) { return -ENOMEM; }
-    dir_emit(dc, name.name, name.len, kFilesWOTagsIndex, DT_DIR);
+    if (!dir_emit(dc, name.name, name.len, kFilesWOTagsIndex, DT_DIR)) {
+      return -ENOMEM;
+    }
     dc->pos += 1;
   }
   if (dc->pos == 4) {
     name = tagfs_get_special_name(kFSSpecialNameTags);
     if (name.len == 0) { return -ENOMEM; }
-    dir_emit(dc, name.name, name.len, kTagsIndex, DT_DIR);
+    if (!dir_emit(dc, name.name, name.len, kTagsIndex, DT_DIR)) {
+      return -ENOMEM;
+    }
     dc->pos += 1;
   }
   if (dc->pos == 5) {
     name = tagfs_get_special_name(kFSSpecialNameControl);
     if (name.len == 0) { return -ENOMEM; }
-    dir_emit(dc, name.name, name.len, kControlIndex, DT_REG);
+    if (!dir_emit(dc, name.name, name.len, kControlIndex, DT_REG)) {
+      return -ENOMEM;
+    }
     dc->pos += 1;
   }
 
@@ -101,12 +103,14 @@ struct dentry* tagfs_root_lookup(struct inode* parent_i, struct dentry* de,
   nt = tagfs_get_special_type(de->d_name);
   switch (nt) {
     case kFSSpecialNameAllFiles:
-      if (!tagfs_fills_dentry_by_inode(sb, de, kAllFilesIndex, &tagfs_allfiles_dir_inode_ops,
+      if (!tagfs_fills_dentry_by_inode(sb, de, kAllFilesIndex,
+          &tagfs_allfiles_dir_inode_ops,
           &tagfs_allfiles_dir_file_ops)) { return ERR_PTR(-ENOENT); }
       return NULL;
       break;
     case kFSSpecialNameFilesWOTags:
-      if (!tagfs_fills_dentry_by_inode(sb, de, kFilesWOTagsIndex, &tagfs_dir_inode_ops,
+      if (!tagfs_fills_dentry_by_inode(sb, de, kFilesWOTagsIndex,
+          &tagfs_dir_inode_ops,
           &tagfs_dir_file_ops)) { return ERR_PTR(-ENOENT); }
       return NULL;
       break;
@@ -120,18 +124,37 @@ struct dentry* tagfs_root_lookup(struct inode* parent_i, struct dentry* de,
       d_add(de, inode);
       return NULL;
       break;
-    default:
-      return ERR_PTR(-ENOENT);
+    default:;
   }
 
-  return ERR_PTR(-ENOENT);
+  d_add(de, NULL);
+  return NULL;
 }
 
+
+loff_t tagfs_root_llseek(struct file* f, loff_t offset, int whence) {
+  switch (whence) {
+    case 0: // absolute offset
+      f->f_pos = offset;
+      break;
+    case 1: // relative offset
+      f->f_pos += offset;
+      break;
+    default:
+      f->f_pos = -1;
+  }
+
+  if (f->f_pos >= 0) {
+    return f->f_pos;
+  }
+  return -EINVAL;
+}
 
 const struct file_operations tagfs_root_file_ops = {
   .open = tagfs_root_open,
   .release = tagfs_root_release,
-  .iterate = tagfs_root_iterate
+  .iterate = tagfs_root_iterate,
+  .llseek = tagfs_root_llseek
 };
 
 struct inode_operations tagfs_root_inode_ops = {
@@ -165,7 +188,7 @@ static int fs_fill_superblock(struct super_block* sb, void* data, int silent) {
   if (!fsd) { return -ENOMEM; }
 
   // Create root inode
-  root_inode = tagfs_create_inode(sb, S_IFDIR | 0755, kRootIndex);
+  root_inode = tagfs_create_inode(sb, S_IFDIR | 0777, kRootIndex);
   if (!root_inode) { return -ENOMEM; }
   root_inode->i_fop = &tagfs_root_file_ops;
   root_inode->i_op = &tagfs_root_inode_ops;
@@ -182,11 +205,10 @@ struct dentry* fs_mount(struct file_system_type* fstype, int flags,
   return mount_nodev(fstype, flags, data, fs_fill_superblock);
 }
 
+// TODO Check invoke
 void fs_kill(struct super_block* sb) {
   kfree(sb->s_fs_info);
 }
-
-
 
 struct file_system_type fs_type = { .name = tagvfs_name, .mount = fs_mount,
     .kill_sb = generic_shutdown_super, .owner = THIS_MODULE, .next = NULL};

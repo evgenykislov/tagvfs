@@ -1,5 +1,8 @@
 #include "tag_storage.h"
 
+#include <linux/slab.h>
+
+
 struct qstr tag1 = QSTR_INIT("Классика", 8);
 struct qstr tag2 = QSTR_INIT("Винтаж", 6);
 struct qstr tag3 = QSTR_INIT("Модерн", 6);
@@ -9,6 +12,9 @@ struct qstr fname3 = QSTR_INIT("m3.mp4", 6);
 struct qstr fpath1 = QSTR_INIT("/tagfs/files/m1.mp4", 19);
 struct qstr fpath2 = QSTR_INIT("/tagfs/files/m2.mp4", 19);
 struct qstr fpath3 = QSTR_INIT("/tagfs/files/m3.mp4", 19);
+
+struct qstr fname4 = QSTR_INIT(NULL, 0);
+struct qstr fpath4 = QSTR_INIT(NULL, 0);
 
 
 struct qstr kSpecNameAllFiles = QSTR_INIT("all-files", 9);
@@ -29,6 +35,7 @@ const struct qstr get_fpath_by_index(ssize_t index) {
     case 0: return fpath1; break;
     case 1: return fpath2; break;
     case 2: return fpath3; break;
+    case 3: return fpath4; break;
   }
   return kNullQstr;
 }
@@ -78,7 +85,7 @@ struct qstr tagfs_get_tag_by_index(ssize_t index) {
 
 
 ssize_t tagfs_get_files_amount(void) {
-  return 3;
+  return fname4.name ? 4: 3;
 }
 
 const struct qstr tagfs_get_fname_by_index(ssize_t index) {
@@ -86,6 +93,7 @@ const struct qstr tagfs_get_fname_by_index(ssize_t index) {
     case 0: return fname1; break;
     case 1: return fname2; break;
     case 2: return fname3; break;
+    case 3: if (fname4.name) { return fname4; } break;
   }
   return kNullQstr;
 }
@@ -129,6 +137,7 @@ size_t tagfs_get_ino_of_name(const struct qstr name) {
   if (compare_qstr(name, fname1) == 0) { return 0; }
   if (compare_qstr(name, fname2) == 0) { return 1; }
   if (compare_qstr(name, fname3) == 0) { return 2; }
+  if (compare_qstr(name, fname4) == 0) { return 3; }
   return kNotFoundIno;
 }
 
@@ -152,4 +161,17 @@ size_t tagfs_get_file_data(size_t ino, size_t pos, size_t len, void* buffer) {
 
   memcpy(buffer, data.name + pos, available);
   return available;
+}
+
+size_t tagfs_add_new_file(const char* target_name, const struct qstr link_name) {
+  void* n;
+  fpath4.len = strlen(target_name);
+  n = kzalloc(fpath4.len, GFP_KERNEL); // TODO check result
+  memcpy(n, target_name, fpath4.len);
+  fpath4.name = n;
+  fname4.len = link_name.len;
+  n = kzalloc(fname4.len, GFP_KERNEL); // TODO check result
+  memcpy(n, link_name.name, fname4.len);
+  fname4.name = n;
+  return 3;
 }

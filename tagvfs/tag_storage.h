@@ -6,7 +6,7 @@
 
 #include "tag_tag_mask.h"
 
-#define kFSSpecialNameStartIno  0x00000001
+#define kFSSpecialNameStartIno  0x00000010
 #define kFSSpecialNameFinishIno 0x000000ff
 #define kFSRealFilesStartIno    0x00000100
 #define kFSRealFilesFinishIno   0xefffffff
@@ -99,5 +99,10 @@ size_t tagfs_get_file_size(size_t ino);
 \return размер прочитанных данных. Если всё хорошо, то соответствует len */
 size_t tagfs_get_file_data(size_t ino, size_t pos, size_t len, void* buffer);
 
+
+/*! Создадим новый файл
+\param название файла
+\return номер созданного файла. В случае ошибки возвращается kNotFoundIno */
+size_t tagfs_add_new_file(const char* target_name, const struct qstr link_name);
 
 #endif // TAG_STORAGE_H
