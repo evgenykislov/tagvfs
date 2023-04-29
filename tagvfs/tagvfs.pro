@@ -4,6 +4,7 @@ CONFIG -= app_bundle
 CONFIG -= qt
 
 SOURCES += \
+  common.c \
   tag_allfiles_dir.c \
   tag_dir.c \
   tag_file.c \
@@ -14,6 +15,7 @@ SOURCES += \
   tag_tag_mask.c
 
 HEADERS += \
+  common.h \
   tag_allfiles_dir.h \
   tag_dir.h \
   tag_file.h \

@@ -2,6 +2,7 @@
 
 #include <linux/slab.h>
 
+#include "common.h"
 #include "tag_inode.h"
 #include "tag_storage.h"
 
@@ -18,6 +19,7 @@ const char* flink_getlink(struct dentry* de, struct inode* inode,
   size_t ino;
   size_t red;
   size_t data_size; //!< Размер данных, выделенный в data без учёта нулевого символа
+  Storage stor = inode_storage(inode);
 
   pr_info("TODO getlink for ino %u\n", (unsigned int)(inode->i_ino));
 
@@ -26,14 +28,14 @@ const char* flink_getlink(struct dentry* de, struct inode* inode,
   }
   ino = inode->i_ino - kFSRealFilesStartIno;
 
-  data_size = tagfs_get_file_size(ino);
+  data_size = tagfs_get_file_size(stor, ino);
   if (data_size == 0) {
     return kEmptyLink;
   }
 
   data = (char*)kzalloc(data_size + 1, GFP_KERNEL);
   if (!data) { return kEmptyLink; }
-  red = tagfs_get_file_data(ino, 0, data_size, data);
+  red = tagfs_get_file_data(stor, ino, 0, data_size, data);
   if (red != data_size) { goto ea_ad; }
   data[data_size] = '\0';
 

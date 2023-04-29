@@ -1,5 +1,5 @@
 obj-m := tagvfs.o
-tagvfs-y := tag_allfiles_dir.o tag_dir.o tag_file.o tag_fs.o tag_inode.o tag_module.o tag_storage.o
+tagvfs-y := common.o tag_allfiles_dir.o tag_dir.o tag_file.o tag_fs.o tag_inode.o tag_module.o tag_storage.o
 
 PWD := $(CURDIR)
 

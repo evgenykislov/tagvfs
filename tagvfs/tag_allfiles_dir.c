@@ -4,6 +4,7 @@
 #include <linux/kernel.h>
 #include <linux/slab.h>
 
+#include "common.h"
 #include "tag_dir.h"
 #include "tag_file.h"
 #include "tag_inode.h"
@@ -18,6 +19,9 @@ int tagfs_allfiles_dir_iterate(struct file* f, struct dir_context* dc) {
   struct dir_data* dd;
   size_t counter;
   size_t ino;
+  Storage stor;
+
+  stor = inode_storage(file_inode(f));
 
   if (!dir_emit_dots(f, dc)) { return -ENOMEM; }
 
@@ -31,7 +35,7 @@ int tagfs_allfiles_dir_iterate(struct file* f, struct dir_context* dc) {
 
     skip = counter < dc->pos ? true : false;
 
-    tagfs_get_first_name(ino, NULL /* TODO */, &fino, &name);
+    tagfs_get_first_name(stor, ino, NULL /* TODO */, &fino, &name);
     if (fino == kNotFoundIno) {
       break;
     }
@@ -72,13 +76,15 @@ struct dentry* tagfs_allfiles_dir_lookup(struct inode* dir, struct dentry *de,
   size_t ino;
   struct inode* inode;
   struct super_block* sb;
+  Storage stor;
 
-  ino = tagfs_get_ino_of_name(de->d_name);
+  sb = dir->i_sb;
+  stor = super_block_storage(sb);
+  ino = tagfs_get_ino_of_name(stor, de->d_name);
   if (ino == kNotFoundIno) {
     d_add(de, NULL);
     return NULL;
   }
-  sb = dir->i_sb;
 
   inode = tagfs_fills_dentry_by_linkfile_inode(sb, de, ino + kFSRealFilesStartIno);
   if (!inode) { return ERR_PTR(-ENOMEM); }
@@ -88,8 +94,9 @@ struct dentry* tagfs_allfiles_dir_lookup(struct inode* dir, struct dentry *de,
 int tagfs_allfiles_dir_symlink(struct inode* inod, struct dentry* de, const char* name) {
   struct inode* newnode;
   size_t ino;
+  Storage stor = inode_storage(inod);
 
-  ino = tagfs_add_new_file(name, de->d_name);
+  ino = tagfs_add_new_file(stor, name, de->d_name);
   newnode = tagfs_create_inode(inod->i_sb, S_IFLNK | 0777, ino + kFSRealFilesStartIno);
   if (!newnode) {
     return -ENOMEM;

@@ -50,7 +50,9 @@ static int compare_qstr(const struct qstr n1, const struct qstr n2) {
   return !!memcmp(n1.name, n2.name, n1.len);
 }
 
-int tagfs_init_storage(void) {
+int tagfs_init_storage(Storage* stor, const char* file_storage) {
+  *stor = kzalloc(5, GFP_KERNEL);
+
   kEmptyQStr.hash = full_name_hash(NULL, kEmptyQStr.name, kEmptyQStr.len);
 
   tag1.hash = full_name_hash(NULL, tag1.name, tag1.len);
@@ -64,17 +66,22 @@ int tagfs_init_storage(void) {
   return 0;
 }
 
-
-void tagfs_sync_storage(void) {
+void tagfs_release_storage(Storage* stor) {
+  kfree(*stor);
+  *stor = NULL;
 }
 
 
-ssize_t tagfs_get_tags_amount(void) {
+void tagfs_sync_storage(Storage stor) {
+}
+
+
+ssize_t tagfs_get_tags_amount(Storage stor) {
   return 3;
 }
 
 
-struct qstr tagfs_get_tag_by_index(ssize_t index) {
+struct qstr tagfs_get_tag_by_index(Storage stor, ssize_t index) {
   switch (index) {
     case 0: return tag1; break;
     case 1: return tag2; break;
@@ -84,11 +91,11 @@ struct qstr tagfs_get_tag_by_index(ssize_t index) {
 }
 
 
-ssize_t tagfs_get_files_amount(void) {
+ssize_t tagfs_get_files_amount(Storage stor) {
   return fname4.name ? 4: 3;
 }
 
-const struct qstr tagfs_get_fname_by_index(ssize_t index) {
+const struct qstr tagfs_get_fname_by_index(Storage stor, ssize_t index) {
   switch (index) {
     case 0: return fname1; break;
     case 1: return fname2; break;
@@ -100,7 +107,7 @@ const struct qstr tagfs_get_fname_by_index(ssize_t index) {
 
 
 
-struct qstr tagfs_get_special_name(enum FSSpecialName name) {
+struct qstr tagfs_get_special_name(Storage stor, enum FSSpecialName name) {
   switch (name) {
     case kFSSpecialNameAllFiles: return kSpecNameAllFiles; break;
     case kFSSpecialNameFilesWOTags: return kSpecNameFilesWOTags; break;
@@ -111,7 +118,7 @@ struct qstr tagfs_get_special_name(enum FSSpecialName name) {
   return kNullQstr;
 }
 
-enum FSSpecialName tagfs_get_special_type(struct qstr name) {
+enum FSSpecialName tagfs_get_special_type(Storage stor, struct qstr name) {
   if (compare_qstr(name, kSpecNameAllFiles) == 0) { return kFSSpecialNameAllFiles; }
   if (compare_qstr(name, kSpecNameFilesWOTags) == 0) { return kFSSpecialNameFilesWOTags; }
   if (compare_qstr(name, kSpecNameTags) == 0) { return kFSSpecialNameTags; }
@@ -119,10 +126,10 @@ enum FSSpecialName tagfs_get_special_type(struct qstr name) {
   return kFSSpecialNameUndefined;
 }
 
-void tagfs_get_first_name(size_t start_ino, const struct TagMask* mask,
-    size_t* found_ino, struct qstr* name) {
+void tagfs_get_first_name(Storage stor, size_t start_ino,
+    const struct TagMask* mask, size_t* found_ino, struct qstr* name) {
   struct qstr rstr;
-  rstr = tagfs_get_fname_by_index(start_ino);
+  rstr = tagfs_get_fname_by_index(stor, start_ino);
   if (rstr.len == 0) {
     *found_ino = kNotFoundIno;
     *name = kNullQstr;
@@ -133,7 +140,7 @@ void tagfs_get_first_name(size_t start_ino, const struct TagMask* mask,
   *name = rstr;
 }
 
-size_t tagfs_get_ino_of_name(const struct qstr name) {
+size_t tagfs_get_ino_of_name(Storage stor, const struct qstr name) {
   if (compare_qstr(name, fname1) == 0) { return 0; }
   if (compare_qstr(name, fname2) == 0) { return 1; }
   if (compare_qstr(name, fname3) == 0) { return 2; }
@@ -142,13 +149,13 @@ size_t tagfs_get_ino_of_name(const struct qstr name) {
 }
 
 
-size_t tagfs_get_file_size(size_t ino) {
+size_t tagfs_get_file_size(Storage stor, size_t ino) {
   struct qstr data;
   data = get_fpath_by_index(ino);
   return data.len;
 }
 
-size_t tagfs_get_file_data(size_t ino, size_t pos, size_t len, void* buffer) {
+size_t tagfs_get_file_data(Storage stor, size_t ino, size_t pos, size_t len, void* buffer) {
   struct qstr data;
   size_t available;
   data = get_fpath_by_index(ino);
@@ -163,7 +170,7 @@ size_t tagfs_get_file_data(size_t ino, size_t pos, size_t len, void* buffer) {
   return available;
 }
 
-size_t tagfs_add_new_file(const char* target_name, const struct qstr link_name) {
+size_t tagfs_add_new_file(Storage stor, const char* target_name, const struct qstr link_name) {
   void* n;
   fpath4.len = strlen(target_name);
   n = kzalloc(fpath4.len, GFP_KERNEL); // TODO check result
