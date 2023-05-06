@@ -2,6 +2,8 @@
 
 #include "tag_dir.h"
 
+const size_t kInodeSize = 1;
+
 
 struct inode* tagfs_create_inode(struct super_block* sb, umode_t mode,
     size_t index) {
@@ -14,7 +16,7 @@ struct inode* tagfs_create_inode(struct super_block* sb, umode_t mode,
   n->i_uid.val = n->i_gid.val = 0;
   n->i_size = PAGE_SIZE;
   n->i_blocks = 0;
-  n->i_size = 1000; // TODO fake size
+  n->i_size = kInodeSize;
   n->i_ino = index;
   n->i_atime = n->i_ctime = n->i_mtime = current_time(n);
   switch (mode & S_IFMT) {

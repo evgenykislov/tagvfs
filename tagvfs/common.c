@@ -50,3 +50,10 @@ int compare_qstr(const struct qstr n1, const struct qstr n2) {
   return !!memcmp(n1.name, n2.name, n1.len);
 }
 
+
+struct qstr get_null_qstr() {
+  struct qstr res;
+  res.name = NULL;
+  res.len = 0;
+  return res;
+}

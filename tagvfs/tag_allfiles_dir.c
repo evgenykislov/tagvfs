@@ -30,7 +30,7 @@ int tagfs_allfiles_dir_iterate(struct file* f, struct dir_context* dc) {
   dd = (struct dir_data*)(f->private_data);
   while (true) {
     size_t fino;
-    struct qstr name;
+    struct qstr name = get_null_qstr();
     bool skip;
 
     skip = counter < dc->pos ? true : false;
@@ -49,6 +49,8 @@ int tagfs_allfiles_dir_iterate(struct file* f, struct dir_context* dc) {
       }
       dc->pos += 1;
     }
+
+    free_qstr(&name);
   }
 
   return 0;

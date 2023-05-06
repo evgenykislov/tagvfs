@@ -26,7 +26,9 @@ const unsigned long kMagicTag = 0x34562343; //!< Магическое число
 
 
 int tagfs_root_iterate(struct file* f, struct dir_context* dc) {
-  struct qstr name;
+  struct qstr name = get_null_qstr();
+  bool bres;
+
   Storage stor = inode_storage(file_inode(f));
 
   if (!dir_emit_dots(f, dc)) { return -ENOMEM; }
@@ -35,31 +37,33 @@ int tagfs_root_iterate(struct file* f, struct dir_context* dc) {
   if (dc->pos == 2) {
     name = tagfs_get_special_name(stor, kFSSpecialNameAllFiles);
     if (name.len == 0) { return -ENOMEM; }
-    if (!dir_emit(dc, name.name, name.len, kAllFilesIndex, DT_DIR)) {
-      return -ENOMEM;
-    }
+    bres = dir_emit(dc, name.name, name.len, kAllFilesIndex, DT_DIR);
+    free_qstr(&name);
+    if (!bres) { return -ENOMEM; }
     dc->pos += 1;
   }
   if (dc->pos == 3) {
     name = tagfs_get_special_name(stor, kFSSpecialNameFilesWOTags);
     if (name.len == 0) { return -ENOMEM; }
-    if (!dir_emit(dc, name.name, name.len, kFilesWOTagsIndex, DT_DIR)) {
-      return -ENOMEM;
-    }
+    bres = dir_emit(dc, name.name, name.len, kFilesWOTagsIndex, DT_DIR);
+    free_qstr(&name);
+    if (!bres) { return -ENOMEM; }
     dc->pos += 1;
   }
   if (dc->pos == 4) {
     name = tagfs_get_special_name(stor, kFSSpecialNameTags);
     if (name.len == 0) { return -ENOMEM; }
-    if (!dir_emit(dc, name.name, name.len, kTagsIndex, DT_DIR)) {
-      return -ENOMEM;
-    }
+    bres = dir_emit(dc, name.name, name.len, kTagsIndex, DT_DIR);
+    free_qstr(&name);
+    if (!bres) { return -ENOMEM; }
     dc->pos += 1;
   }
   if (dc->pos == 5) {
     name = tagfs_get_special_name(stor, kFSSpecialNameControl);
     if (name.len == 0) { return -ENOMEM; }
-    if (!dir_emit(dc, name.name, name.len, kControlIndex, DT_REG)) {
+    bres = dir_emit(dc, name.name, name.len, kControlIndex, DT_REG);
+    free_qstr(&name);
+    if (!bres) {
       return -ENOMEM;
     }
     dc->pos += 1;
@@ -200,7 +204,7 @@ struct dentry* fs_mount(struct file_system_type* fstype, int flags,
   return mount_nodev(fstype, flags, stor, fs_fill_superblock);
 }
 
-// TODO Check invoke
+
 void fs_kill(struct super_block* sb) {
   tagfs_release_storage(&sb->s_fs_info);
   generic_shutdown_super(sb);

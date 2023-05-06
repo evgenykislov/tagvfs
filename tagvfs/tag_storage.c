@@ -121,15 +121,14 @@ err_aa:
   return res; // File doesn't exist
 }
 
-/*! TODO ??? */
+/*! Закрывает хранилище файловой системы. Освобождает все ресурсы.
+Обнуляет указатель на хранилище
+\param stor указатель на данные хранилища
+\return 0 - закрытие без ошибок; Иначе - отрицательный код ошибки */
 int CloseTagFS(Storage* stor) {
   struct StorageRaw* sr;
 
-  if (!stor || !(*stor)) {
-    pr_err(kModuleLogName "Logic error: 'stor'-close wrong initialization at %s:%i\n", __FILE__, __LINE__);
-    return -EINVAL;
-  }
-
+  if (!stor || !(*stor)) { return -EINVAL; }
   sr = (struct StorageRaw*)(*stor);
   filp_close(sr->storage_file, NULL);
   kfree(sr);
@@ -318,15 +317,10 @@ int GetFileInfo(struct StorageRaw* sr, size_t ino, void* tag,
 
   if (!sr) { return -EINVAL; }
 
-  pr_info("TODO p0\n");
-
   res = AllocateReadFileData(sr, ino, &data, &data_size);
   if (res) {
-    pr_info("TODO p0 - err: %d\n", (int)res);
     return res;
   }
-
-  pr_info("TODO p1\n");
 
   fh = (struct FileHeader*)(data);
   postag = sizeof(struct FileHeader);
@@ -334,8 +328,6 @@ int GetFileInfo(struct StorageRaw* sr, size_t ino, void* tag,
   if (tag) {
     // TODO implement
   }
-
-  pr_info("TODO p2\n");
 
   namepos = postag + taglen;
   namelen = le16_to_cpu(fh->link_name_size);

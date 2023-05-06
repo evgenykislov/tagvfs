@@ -62,7 +62,7 @@ ssize_t tagfs_get_files_amount(Storage stor);
 \param index индекс файла, по которому запрашивается информация
 \return строка с названием файла. Строка может быть пустой (NULL, нулевой длины) */
 struct qstr tagfs_get_fname_by_ino(Storage stor, size_t ino);
-// TODO REMOVE RESULT
+
 
 /*! Возвращает специальное (зарезервированное) имя согласно входному параметру.
 Используется для назначения пользовательских названий. Строку необходимо потом
@@ -71,7 +71,6 @@ struct qstr tagfs_get_fname_by_ino(Storage stor, size_t ino);
 \return строка, содержащая специальное имя. Если такого имени нет, то
 возвращается строка с NULL указателем и нулевой длиной. */
 struct qstr tagfs_get_special_name(Storage stor, enum FSSpecialName name);
-// TODO REMOVE RESULT
 
 /*! Возвращает тип (значение перечисления) специального имени
 \param name строковое имя, тип которого нужно возвратить
@@ -86,11 +85,11 @@ enum FSSpecialName tagfs_get_special_type(Storage stor, const struct qstr name);
 \param found_ino найденный номер. Может быть равен start_ino или быть больше.
 Если  файл не найден, то возвращается значение kNotFoundIno. Параметр не может
 быть NULL
-\param name найденное имя файла. Строку потом необходимо явно удалить. Если
+\param name найденное имя файла. Если файл не найден, то возвращается пустая
+строка. Строку потом необходимо явно удалить. Если
 значение имени не требуется, то можно параметр передавать как NULL */
 void tagfs_get_first_name(Storage stor, size_t start_ino,
     const struct TagMask* mask, size_t* found_ino, struct qstr* name);
-// TODO REMOVE RESULT
 
 /*! Находит номер файла с именем ino
 \param name имя файла, номер которого нужно получить
@@ -102,7 +101,6 @@ size_t tagfs_get_ino_of_name(Storage stor, const struct qstr name);
 \param ino номер файла в файловой системе
 \return Строка с целевой ссылкой. Строка выделяется впамяти и её нужно удалить */
 struct qstr tagfs_get_file_link(Storage stor, size_t ino);
-// TODO REMOVE RESULT
 
 
 /*! Создадим новый файл в хранилище. И возвратим номер/ino файла.

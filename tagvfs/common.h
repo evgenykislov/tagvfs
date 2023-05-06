@@ -36,4 +36,7 @@ extern void free_qstr(struct qstr* str);
 Если строки не равны, то возвращается не-0. */
 extern int compare_qstr(const struct qstr n1, const struct qstr n2);
 
+/*! Возвращает пустую строку */
+extern struct qstr get_null_qstr(void);
+
 #endif // COMMON_H
