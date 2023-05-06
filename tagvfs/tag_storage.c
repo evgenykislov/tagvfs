@@ -9,7 +9,7 @@ const u32 kMagicWord = 0x34562343;
 const u64 kTablesAlignment = 256;
 
 const u16 kDefaultTagRecordSize = 256;
-const u16 kDefaultTagRecordAmount = 64;
+const u16 kDefaultTagRecordMaxAmount = 64;
 const u16 kDefaultFileBlockSize = 256;
 
 const size_t kMaxFileBlocks = 1000; //!< Предельное ограничение на очень длинное описание файла (в блоках)
@@ -21,9 +21,9 @@ struct FSHeader {
   /*0x10*/
   __le64 fileblock_table_pos;
   __le16 tag_record_size;
-  __le16 tag_record_amount;
+  __le16 tag_record_max_amount;
   __le16 fileblock_size;
-  __le16 padding2;
+  __le16 tags_amount; //!< Текущее количество тэгов (заполненных записей)
   /*0x20*/
   __le64 fileblock_amount;
   __le64 file_amount;
@@ -56,8 +56,9 @@ struct StorageRaw {
 
   u64 tag_table_pos;
   u16 tag_record_size;
-  u16 tag_record_amount;
+  u16 tag_record_max_amount;
   u16 tag_min_size; //!< Минимальный размер тэговых битов (в байтах)
+  u16 tags_amount;
 
   u64 fileblock_table_pos;
   u16 fileblock_size;
@@ -100,8 +101,9 @@ int OpenTagFS(Storage* stor, const char* file_storage) {
 
   sr->tag_table_pos = le64_to_cpu(sr->header_mem.tag_table_pos);
   sr->tag_record_size = le16_to_cpu(sr->header_mem.tag_record_size);
-  sr->tag_record_amount = le16_to_cpu(sr->header_mem.tag_record_amount);
-  sr->tag_min_size = (sr->tag_record_amount + 63) / 64 * 8;
+  sr->tag_record_max_amount = le16_to_cpu(sr->header_mem.tag_record_max_amount);
+  sr->tags_amount = le16_to_cpu(sr->header_mem.tags_amount);
+  sr->tag_min_size = (sr->tag_record_max_amount + 63) / 64 * 8;
 
   sr->fileblock_table_pos = le64_to_cpu(sr->header_mem.fileblock_table_pos);
   sr->fileblock_size = le16_to_cpu(sr->header_mem.fileblock_size);
@@ -158,15 +160,15 @@ int CreateDefaultStorageFile(const char* file_storage) {
 
   // Fill and write header
   tag_pos = (sizeof(struct FSHeader) + kTablesAlignment - 1) / kTablesAlignment * kTablesAlignment;
-  file_pos = (tag_pos + kDefaultTagRecordSize * kDefaultTagRecordAmount + kTablesAlignment - 1) / kTablesAlignment * kTablesAlignment;
+  file_pos = (tag_pos + kDefaultTagRecordSize * kDefaultTagRecordMaxAmount + kTablesAlignment - 1) / kTablesAlignment * kTablesAlignment;
   h.magic_word = cpu_to_le32(kMagicWord);
   h.padding1 = 0;
   h.tag_table_pos = cpu_to_le64(tag_pos);
   h.fileblock_table_pos = cpu_to_le64(file_pos);
   h.tag_record_size = cpu_to_le16(kDefaultTagRecordSize);
-  h.tag_record_amount = cpu_to_le16(kDefaultTagRecordAmount);
+  h.tag_record_max_amount = cpu_to_le16(kDefaultTagRecordMaxAmount);
+  h.tags_amount = cpu_to_le16(0);
   h.fileblock_size = cpu_to_le16(kDefaultFileBlockSize);
-  h.padding2 = 0;
   h.fileblock_amount = cpu_to_le64(0);
   h.file_amount = cpu_to_le64(0);
   ws = kernel_write(f, &h, sizeof(h), &wpos);
@@ -442,6 +444,21 @@ int IncFileAmount(struct StorageRaw* sr) {
   return 0;
 }
 
+int IncTagAmount(struct StorageRaw* sr) {
+  loff_t zeropos = 0;
+  size_t ws;
+
+  ++sr->tags_amount; // TODO LOCK-LOCK
+  sr->header_mem.tags_amount = cpu_to_le16(sr->tags_amount);
+  ws = kernel_write(sr->storage_file, &sr->header_mem, sizeof(struct FSHeader),
+      &zeropos);
+  if (ws != sizeof(struct FSHeader)) {
+    return -EFAULT;
+  }
+  return 0;
+}
+
+
 /* name - это содержимое линки, целевой файл, link - это имя символьной ссылки */
 size_t AddFile(struct StorageRaw* sr, const char* link_name, size_t link_name_len,
     const char* target_link, size_t target_link_len) {
@@ -508,6 +525,37 @@ err_nomem:
 }
 
 
+size_t AddTag(struct StorageRaw* sr, const char* name, size_t name_len) {
+  void* tag;
+  struct TagHeader* th;
+  loff_t pos;
+  size_t ws;
+  int res = 0;
+
+  if (sr->tags_amount >= sr->tag_record_max_amount) { return -ENOMEM; }
+
+  tag = kzalloc(sr->tag_record_size, GFP_KERNEL);
+  if (!tag) { return -ENOMEM; }
+  th = (struct TagHeader*)(tag);
+  th->tag_flags = cpu_to_le16(0x01);
+  th->tag_name_size = sr->tag_record_size - sizeof(struct TagHeader);
+  if (th->tag_name_size > name_len) {
+    th->tag_name_size = name_len;
+  }
+  memcpy(tag + sizeof(struct TagHeader), name, th->tag_name_size);
+  pos = sr->tag_table_pos + sr->tag_record_size * sr->tags_amount;
+  ws = kernel_write(sr->storage_file, tag, sr->tag_record_size, &pos);
+  if (ws != sr->tag_record_size) {
+    res = -EFAULT;
+    goto err;
+  }
+
+  res = IncTagAmount(sr);
+  // --------------
+err:
+  kfree(tag);
+  return res;
+}
 
 
 // TODO CHECK USELESS
@@ -680,4 +728,13 @@ size_t tagfs_add_new_file(Storage stor, const char* target_name,
   sr = (struct StorageRaw*)(stor);
   return AddFile(sr, link_name.name, link_name.len, target_name,
       strlen(target_name));
+}
+
+
+int tagfs_add_new_tag(Storage stor, const struct qstr tag_name) {
+  struct StorageRaw* sr;
+
+  if (!stor) { return -EINVAL; }
+  sr = (struct StorageRaw*)(stor);
+  return AddTag(sr, tag_name.name, tag_name.len);
 }

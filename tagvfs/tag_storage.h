@@ -110,4 +110,11 @@ struct qstr tagfs_get_file_link(Storage stor, size_t ino);
 size_t tagfs_add_new_file(Storage stor, const char* target_name,
     const struct qstr link_name);
 
+
+/*! Добавить новый тэг.
+\param tag_name имя тэга
+\return 0 - всё хорошо, или отрицательный код ошибки */
+int tagfs_add_new_tag(Storage stor, const struct qstr tag_name);
+
+
 #endif // TAG_STORAGE_H
