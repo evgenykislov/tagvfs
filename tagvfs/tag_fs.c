@@ -25,14 +25,6 @@ static const size_t kControlIndex = kFSSpecialNameStartIno + 5;
 const unsigned long kMagicTag = 0x34562343; //!< Магическое число для идентификации файловой системы
 
 
-int compare_qstr(unsigned int len, const char* str, const struct qstr* name) {
-  if (len != name->len) {
-    return 1;
-  }
-  return !!memcmp(str, name->name, len);
-}
-
-
 int tagfs_root_iterate(struct file* f, struct dir_context* dc) {
   struct qstr name;
   Storage stor = inode_storage(file_inode(f));

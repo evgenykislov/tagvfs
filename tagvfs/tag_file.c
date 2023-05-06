@@ -17,9 +17,9 @@ const char* flink_getlink(struct dentry* de, struct inode* inode,
     struct delayed_call* delay_call) {
   char* data;
   size_t ino;
-  size_t red;
-  size_t data_size; //!< Размер данных, выделенный в data без учёта нулевого символа
+  struct qstr lnk = QSTR_INIT(NULL, 0);
   Storage stor = inode_storage(inode);
+  const char* res = kEmptyLink;
 
   pr_info("TODO getlink for ino %u\n", (unsigned int)(inode->i_ino));
 
@@ -28,24 +28,26 @@ const char* flink_getlink(struct dentry* de, struct inode* inode,
   }
   ino = inode->i_ino - kFSRealFilesStartIno;
 
-  data_size = tagfs_get_file_size(stor, ino);
-  if (data_size == 0) {
+  lnk = tagfs_get_file_link(stor, ino);
+  if (lnk.len == 0) {
     return kEmptyLink;
   }
 
-  data = (char*)kzalloc(data_size + 1, GFP_KERNEL);
-  if (!data) { return kEmptyLink; }
-  red = tagfs_get_file_data(stor, ino, 0, data_size, data);
-  if (red != data_size) { goto ea_ad; }
-  data[data_size] = '\0';
+  data = (char*)kzalloc(lnk.len + 1, GFP_KERNEL);
+  if (!data) { goto ea_ad; }
+  memcpy(data, lnk.name, lnk.len);
+  data[lnk.len] = '\0';
+  free_qstr(&lnk);
 
   set_delayed_call(delay_call, flink_delay_buffer, data);
+
   return data;
 
 // -------------
 ea_ad: // Errors after allocation of data
+  free_qstr(&lnk);
   kfree(data);
-  return kEmptyLink;
+  return res;
 }
 
 const static struct file_operations linkfile_fops = {
