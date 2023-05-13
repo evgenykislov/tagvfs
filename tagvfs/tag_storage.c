@@ -16,17 +16,16 @@ const size_t kMaxFileBlocks = 1000; //!< Предельное ограничен
 
 struct FSHeader {
   __le32 magic_word;
-  __le32 padding1;
-  __le64 tag_table_pos;
+  __le32 padding1; //!< Выравнивание. Заполняется нулями
+  __le64 tag_table_pos; //!< Позиция (абсолютная) начала таблицы с тэгами. Может быть больше размера файла
   /*0x10*/
-  __le64 fileblock_table_pos;
+  __le64 fileblock_table_pos; //!< Позиция (абсолютная) начала таблицы с файловыми блоками. Может быть больше размера файла.
   __le16 tag_record_size;
-  __le16 tag_record_max_amount;
-  __le16 fileblock_size;
-  __le16 tags_amount; //!< Текущее количество тэгов (заполненных записей)
+  __le16 tag_record_max_amount; //!< Предельное количество записей по тегам
+  __le16 tag_filled_records; //!< Текущее количество заполненных записей тэгов. Учитывает удалённые тэги. Фактически позволяет определить позицию добавления нового тэга
+  __le16 fileblock_size; //!< Размер файлового блока
   /*0x20*/
-  __le64 fileblock_amount;
-  __le64 file_amount;
+  __le64 fileblock_amount; //!< Общее количество записанных файловых блоков (т.е. тех, что можно прочитать). Фактически определяет размер файла
 };
 
 
@@ -57,8 +56,9 @@ struct StorageRaw {
   u64 tag_table_pos;
   u16 tag_record_size;
   u16 tag_record_max_amount;
-  u16 tag_min_size; //!< Минимальный размер тэговых битов (в байтах)
-  u16 tags_amount;
+  u16 tag_filled_records;
+  u16 tag_mask_min_size; //!< Минимальный размер тэговой битовой маски (в байтах)
+  u16 active_tag_amount; //!< Количество активных (не-удалённых) тэгов
 
   u64 fileblock_table_pos;
   u16 fileblock_size;
@@ -102,13 +102,13 @@ int OpenTagFS(Storage* stor, const char* file_storage) {
   sr->tag_table_pos = le64_to_cpu(sr->header_mem.tag_table_pos);
   sr->tag_record_size = le16_to_cpu(sr->header_mem.tag_record_size);
   sr->tag_record_max_amount = le16_to_cpu(sr->header_mem.tag_record_max_amount);
-  sr->tags_amount = le16_to_cpu(sr->header_mem.tags_amount);
-  sr->tag_min_size = (sr->tag_record_max_amount + 63) / 64 * 8;
+  sr->tag_filled_records = le16_to_cpu(sr->header_mem.tag_filled_records);
+  sr->active_tag_amount = (u16)(-1); // TODO VALUE-VALUE-????
+  sr->tag_mask_min_size = ((sr->tag_record_max_amount + 63) / 64) * 8;
 
   sr->fileblock_table_pos = le64_to_cpu(sr->header_mem.fileblock_table_pos);
   sr->fileblock_size = le16_to_cpu(sr->header_mem.fileblock_size);
   sr->fileblock_amount = le64_to_cpu(sr->header_mem.fileblock_amount);
-  sr->file_amount = le64_to_cpu(sr->header_mem.file_amount);
 
   sr->storage_file = f;
 
@@ -167,10 +167,9 @@ int CreateDefaultStorageFile(const char* file_storage) {
   h.fileblock_table_pos = cpu_to_le64(file_pos);
   h.tag_record_size = cpu_to_le16(kDefaultTagRecordSize);
   h.tag_record_max_amount = cpu_to_le16(kDefaultTagRecordMaxAmount);
-  h.tags_amount = cpu_to_le16(0);
+  h.tag_filled_records = cpu_to_le16(0);
   h.fileblock_size = cpu_to_le16(kDefaultFileBlockSize);
   h.fileblock_amount = cpu_to_le64(0);
-  h.file_amount = cpu_to_le64(0);
   ws = kernel_write(f, &h, sizeof(h), &wpos);
 
   res = filp_close(f, NULL);
@@ -202,6 +201,59 @@ struct qstr kNullQstr = QSTR_INIT(NULL, 0);
 struct qstr kEmptyQStr = QSTR_INIT("", 0);
 
 const size_t kNotFoundIno = (size_t)(-1);
+
+/* Проверяет тэг на валидность (не удалён). Это быстрее, чем вычитывать весь тэг
+\param tag - номер тэга
+\return 0 - невалидный (удалённый), 1 - валидный (активный), <0 - ошибка */
+int CheckTagIsActive(struct StorageRaw* sr, size_t tag) {
+  struct TagHeader th;
+  loff_t pos;
+  size_t rs;
+
+  BUG_ON(!sr);
+  BUG_ON(!sr->storage_file);
+
+  pos = sr->tag_table_pos + tag * sr->tag_record_size;
+  rs = kernel_read(sr->storage_file, &th, sizeof(struct TagHeader), &pos);
+  if (rs != sizeof(struct TagHeader)) {
+    return -EFAULT;
+  }
+
+  return th.tag_flags != 0 ? 1: 0;
+}
+
+int ReadTagName(struct StorageRaw* sr, size_t tag, struct qstr* name) {
+  void* tag_info;
+  struct TagHeader* th;
+  loff_t pos;
+  int res = 0;
+  size_t rs;
+
+  if (!name) { return -EINVAL; }
+  if (name->name || name->len) { return -EINVAL; }
+  if (!sr || !sr->storage_file) { return -EINVAL; }
+
+  tag_info = kzalloc(sr->tag_record_size, GFP_KERNEL);
+  if (!tag_info) { return -ENOMEM; }
+
+  pos = sr->tag_table_pos + tag * sr->tag_record_size;
+  rs = kernel_read(sr->storage_file, tag_info, sr->tag_record_size, &pos);
+  if (rs != sr->tag_record_size) {
+    res = -EFAULT;
+    goto err;
+  }
+  th = (struct TagHeader*)(tag_info);
+  if ((th->tag_name_size + sizeof(struct TagHeader)) > sr->tag_record_size) {
+    res = -EFAULT;
+    goto err;
+  }
+  *name = alloc_qstr_from_str(tag_info + sizeof(struct TagHeader),
+      th->tag_name_size);
+  // -----------------
+err:
+  kfree(tag_info);
+  return res;
+}
 
 /*! Вычитывает инфомрацию о файле по номеру (ino). Для данных выдуляет блок
  памяти.
@@ -430,26 +482,13 @@ int CapFileBlock(struct StorageRaw* sr, size_t fb_index) {
   return 0;
 }
 
-int IncFileAmount(struct StorageRaw* sr) {
+/* ??? */
+int IncTagFilledAmount(struct StorageRaw* sr) {
   loff_t zeropos = 0;
   size_t ws;
 
-  ++sr->file_amount; // TODO LOCK-LOCK
-  sr->header_mem.file_amount = cpu_to_le64(sr->file_amount);
-  ws = kernel_write(sr->storage_file, &sr->header_mem, sizeof(struct FSHeader),
-      &zeropos);
-  if (ws != sizeof(struct FSHeader)) {
-    return -EFAULT;
-  }
-  return 0;
-}
-
-int IncTagAmount(struct StorageRaw* sr) {
-  loff_t zeropos = 0;
-  size_t ws;
-
-  ++sr->tags_amount; // TODO LOCK-LOCK
-  sr->header_mem.tags_amount = cpu_to_le16(sr->tags_amount);
+  ++sr->tag_filled_records; // TODO LOCK-LOCK
+  sr->header_mem.tag_filled_records = cpu_to_le16(sr->tag_filled_records);
   ws = kernel_write(sr->storage_file, &sr->header_mem, sizeof(struct FSHeader),
       &zeropos);
   if (ws != sizeof(struct FSHeader)) {
@@ -473,17 +512,17 @@ size_t AddFile(struct StorageRaw* sr, const char* link_name, size_t link_name_le
   size_t ino = kNotFoundIno;
 
 
-  file_info_size = sizeof(struct FileHeader) + sr->tag_min_size + link_name_len + target_link_len;
+  file_info_size = sizeof(struct FileHeader) + sr->tag_mask_min_size + link_name_len + target_link_len;
   file_info = kzalloc(file_info_size, GFP_KERNEL);
   if (!file_info) {
     goto err_nomem;
   }
 
   fh = (struct FileHeader*)(file_info);
-  fh->tags_field_size = cpu_to_le16(sr->tag_min_size);
+  fh->tags_field_size = cpu_to_le16(sr->tag_mask_min_size);
   fh->link_name_size = cpu_to_le16(link_name_len);
   fh->link_target_size = cpu_to_le16(target_link_len);
-  pos = sizeof(struct FileHeader) + sr->tag_min_size;
+  pos = sizeof(struct FileHeader) + sr->tag_mask_min_size;
   memcpy(file_info + pos, link_name, link_name_len);
   pos += link_name_len;
   memcpy(file_info + pos, target_link, target_link_len);
@@ -511,10 +550,6 @@ size_t AddFile(struct StorageRaw* sr, const char* link_name, size_t link_name_le
     // TODO EROASDFASDF
     goto err;
   }
-  if (IncFileAmount(sr)) {
-    // TODO ERRREDWR
-    goto err;
-  }
 
   res = ino;
   // ---------------------
@@ -532,7 +567,7 @@ size_t AddTag(struct StorageRaw* sr, const char* name, size_t name_len) {
   size_t ws;
   int res = 0;
 
-  if (sr->tags_amount >= sr->tag_record_max_amount) { return -ENOMEM; }
+  if (sr->tag_filled_records >= sr->tag_record_max_amount) { return -ENOMEM; }
 
   tag = kzalloc(sr->tag_record_size, GFP_KERNEL);
   if (!tag) { return -ENOMEM; }
@@ -543,14 +578,14 @@ size_t AddTag(struct StorageRaw* sr, const char* name, size_t name_len) {
     th->tag_name_size = name_len;
   }
   memcpy(tag + sizeof(struct TagHeader), name, th->tag_name_size);
-  pos = sr->tag_table_pos + sr->tag_record_size * sr->tags_amount;
+  pos = sr->tag_table_pos + sr->tag_record_size * sr->tag_filled_records;
   ws = kernel_write(sr->storage_file, tag, sr->tag_record_size, &pos);
   if (ws != sr->tag_record_size) {
     res = -EFAULT;
     goto err;
   }
 
-  res = IncTagAmount(sr);
+  res = IncTagFilledAmount(sr);
   // --------------
 err:
   kfree(tag);
@@ -600,29 +635,114 @@ void tagfs_sync_storage(Storage stor) {
 }
 
 
-ssize_t tagfs_get_tags_amount(Storage stor) {
-  return 3;
-}
-
-
-struct qstr tagfs_get_tag_by_index(Storage stor, ssize_t index) {
-  switch (index) {
-    case 0: return tag1; break;
-    case 1: return tag2; break;
-    case 2: return tag3; break;
-  }
-  return kEmptyQStr;
-}
-
-
-ssize_t tagfs_get_files_amount(Storage stor) {
+struct qstr tagfs_get_tag_name_by_index(Storage stor, size_t index) {
   struct StorageRaw* sr;
+  struct qstr name = get_null_qstr();
 
-  if (!stor) { return 0; }
+  if (!stor) { return get_null_qstr(); }
+  sr = (struct StorageRaw*)(stor);
+  ReadTagName(sr, index, &name);
+  return name;
+}
+
+size_t tagfs_get_tagino_by_name(Storage stor, const struct qstr name) {
+  struct StorageRaw* sr;
+  size_t i;
+  struct qstr tn = get_null_qstr();
+
+  if (!stor) { return kNotFoundIno; }
+  sr = (struct StorageRaw*)(stor);
+  for (i = 0; i < sr->tag_filled_records; ++i) {
+    int res = ReadTagName(sr, i, &tn);
+    int cr;
+
+    if (res) {
+      // Невосстановимая ошибка
+      return kNotFoundIno;
+    }
+
+    cr = compare_qstr(tn, name);
+    free_qstr(&tn);
+    if (cr == 0) {
+      return i;
+    }
+  }
+  return kNotFoundIno;
+}
+
+
+struct qstr tagfs_get_first_tag(Storage stor, size_t* tagino) {
+  *tagino = (size_t)(-1);
+  return tagfs_get_next_tag(stor, tagino);
+}
+
+
+// TODO PERFORMANCE Сделать подсчёт общего количества тэгов и делать быструю проверку на выход за существующее количество. Это будет часто запрашиваться
+struct qstr tagfs_get_nth_tag(Storage stor, size_t index, size_t* tagino) {
+  size_t i;
+  size_t cur_index;
+  struct StorageRaw* sr;
+  struct qstr name = get_null_qstr();
+
+  if (!stor) { goto err; }
   sr = (struct StorageRaw*)(stor);
 
-  return sr->file_amount;
+  for (i = 0, cur_index = 0; i < sr->tag_filled_records; ++i) {
+    int res = CheckTagIsActive(sr, i);
+    if (res < 0) { goto err; }
+    if (res == 0) { continue; }
+
+    // Has found real/active tag. Check nth index
+    if (cur_index != index) {
+      ++cur_index;
+      continue;
+    }
+
+    if (ReadTagName(sr, i, &name)) {
+      goto err;
+    }
+    if (tagino) { *tagino = i; }
+    return name;
+  }
+err:
+  if (tagino) { *tagino = kNotFoundIno; }
+  free_qstr(&name);
+  return get_null_qstr();
 }
+
+
+struct qstr tagfs_get_next_tag(Storage stor, size_t* tagino) {
+  size_t start = *tagino;
+  struct StorageRaw* sr;
+  struct qstr name = get_null_qstr();
+
+  // Возьмём для старта следующую позицию
+  if (start == (size_t)(-1)) {
+    start = 0;
+  } else {
+    ++start;
+  }
+
+  if (!stor) { goto err; }
+  sr = (struct StorageRaw*)(stor);
+  while (start < sr->tag_filled_records) {
+    if (ReadTagName(sr, start, &name)) {
+      goto err;
+    }
+
+    if (name.len) {
+      *tagino = start;
+      return name;
+    }
+
+    ++start;
+  }
+  // ---------------
+err:
+  *tagino = kNotFoundIno;
+  return get_null_qstr();
+}
+
 
 struct qstr tagfs_get_fname_by_ino(Storage stor, size_t ino) {
   struct StorageRaw* sr;

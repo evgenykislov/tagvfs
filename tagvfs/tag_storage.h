@@ -9,8 +9,8 @@
 #define kFSSpecialNameStartIno  0x00000010
 #define kFSSpecialNameFinishIno 0x000000ff
 #define kFSRealFilesStartIno    0x00000100
-#define kFSRealFilesFinishIno   0xefffffff
-#define kFSDirectoriesStartIno  0xf0000100
+#define kFSRealFilesFinishIno   0x0fffffff
+#define kFSDirectoriesStartIno  0x10000000
 #define kFSDirectoriesFinishIno 0xffffffff
 
 
@@ -40,22 +40,36 @@ void tagfs_release_storage(Storage* stor);
 /*! Сохранить/Сериализовать хранилище. Ошибок не возвращает */
 void tagfs_sync_storage(Storage stor);
 
-/*! Возвращает общее количество тэгов. Среди тегов могут быть невалидные.
- *  Индексы всех тэгов входят в диапазон [0; amount).
-\return Общее количество тэгов, среди которых могут быть пустые/невалидные */
-ssize_t tagfs_get_tags_amount(Storage stor);
 
-/*! Возвращает название тэга по индексу. Если индекс невалидный или тэг удалён,
-то возвращается строка пустой длины
+/*! Возвращает название тэга по индексу/tagino. Если индекс невалидный или тэг удалён, то возвращается строка пустой длины
 \param index индекс тэга, по которому запрашивается информация
-\return строка с названием тэга. Строка может быть пустой. Данные для строки
-валидны всегда (до завершения работы) */
-struct qstr tagfs_get_tag_by_index(Storage stor, ssize_t index);
+\return строка с названием тэга. Строка выделяется на памяти, необходимо её удалить */
+struct qstr tagfs_get_tag_name_by_index(Storage stor, size_t index);
 
-/*! Возвращает общее количество файлов под управлением. Все файлы валидные,
-удалённые не учитываются.
-\return Общее количество файлов. В случае ошибки возвращается 0 */
-ssize_t tagfs_get_files_amount(Storage stor);
+/* ??? */
+size_t tagfs_get_tagino_by_name(Storage stor, const struct qstr name);
+
+
+/* Вычитывает информацию по активному тэгу с порядковым номером index (с нуля).
+При подсчёте неактивные/удалённые тэги не учитываются. Если тэг не найден,
+то возвращается пустая строка и ino тэга, равный kNotFoundIno (-1).
+\param index - номер тэга (с нуля)
+\param taginfo - возвращает ino этого тэга. Параметр может быть NULL
+\return строка с именем тэга. Строку необходимо потом удалить */
+struct qstr tagfs_get_nth_tag(Storage stor, size_t index, size_t* tagino);
+
+/* ??? */ // TODO переделать на использование tagfs_get_nth_tag
+struct qstr tagfs_get_first_tag(Storage stor, size_t* tagino);
+
+
+/*! Возвращает название следующего (после tagino) тэга. Индекс нового тэга
+перезаписывает в tagino. Если тэгов больше нет, то возвращается пустая строка
+и индекс kNotFoundIno
+\param tagino индекс тэга, ПОСЛЕ которого искать следующий
+\return строка с именем тэга. Если тэгов нет, то возвращается пустая строка.
+Строка выделяется на памяти, её необходимо после удалить. */
+struct qstr tagfs_get_next_tag(Storage stor, size_t* tagino);
+
 
 /*! Возвращает имя файла по его индексу/ino. Если индекс невалидный или файл
 удалён, то возвращается строка пустой длины. Строка выделяется в памяти и получатель строки должен сам её удалить.
@@ -88,6 +102,7 @@ enum FSSpecialName tagfs_get_special_type(Storage stor, const struct qstr name);
 \param name найденное имя файла. Если файл не найден, то возвращается пустая
 строка. Строку потом необходимо явно удалить. Если
 значение имени не требуется, то можно параметр передавать как NULL */
+// TODO Переделать на использование, аналогично nth_tag
 void tagfs_get_first_name(Storage stor, size_t start_ino,
     const struct TagMask* mask, size_t* found_ino, struct qstr* name);
 

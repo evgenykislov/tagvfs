@@ -12,6 +12,7 @@
 #include "tag_file.h"
 #include "tag_inode.h"
 #include "tag_storage.h"
+#include "tag_tag_dir.h"
 
 
 const char tagvfs_name[] = "tagvfs";
@@ -80,9 +81,13 @@ int tagfs_root_release(struct inode *inode, struct file *file) {
   return 0;
 }
 
-int tagfs_root_dinit(struct dentry* de) {
+int tagfs_dentry_init(struct dentry* de) {
   return 0;
 }
+
+void tagfs_dentry_release(struct dentry* de) {
+}
+
 
 struct dentry* tagfs_root_lookup(struct inode* parent_i, struct dentry* de,
     unsigned int flags) {
@@ -106,8 +111,10 @@ struct dentry* tagfs_root_lookup(struct inode* parent_i, struct dentry* de,
       return NULL;
       break;
     case kFSSpecialNameTags:
-      if (!tagfs_fills_dentry_by_inode(sb, de, kTagsIndex, &tagfs_dir_inode_ops,
-          &tagfs_dir_file_ops)) { return ERR_PTR(-ENOENT); }
+      if (!tagfs_fills_dentry_by_inode(sb, de, kTagsIndex,
+          &tagfs_tag_dir_inode_ops, &tagfs_tag_dir_file_ops)) {
+        return ERR_PTR(-ENOENT);
+      }
       return NULL;
       break;
     case kFSSpecialNameControl:
@@ -160,7 +167,8 @@ static const struct super_operations tagfs_ops = {
 
 
 static const struct dentry_operations tagfs_common_dentry_ops = {
-  .d_init = tagfs_root_dinit
+  .d_init = tagfs_dentry_init,
+  .d_release = tagfs_dentry_release
 };
 
 
