@@ -21,7 +21,7 @@ struct TagMask tagmask_init_zero(size_t mask_len) {
   res.bit_len = mask_len;
   res.byte_len = (mask_len + kMaskSizeAlignment * 8 - 1) /
       (kMaskSizeAlignment * 8);
-  res.data = kzalloc(res.byte_len);
+  res.data = kzalloc(res.byte_len, GFP_KERNEL);
   if (!res.data) {
     return tagmask_empty();
   }
@@ -62,7 +62,7 @@ bool tagmask_check_tag(const struct TagMask mask, size_t tag) {
 
   if (tag >= mask.bit_len) { return false; }
   pos = GetTagPosition(tag, &m);
-  return (mask.data[pos] & m) != 0;
+  return (((u8*)mask.data)[pos] & m) != 0;
 }
 
 void tagmask_set_tag(struct TagMask mask, size_t tag, bool state) {
@@ -72,9 +72,20 @@ void tagmask_set_tag(struct TagMask mask, size_t tag, bool state) {
   if (tag >= mask.bit_len) { return; }
   pos = GetTagPosition(tag, &m);
   if (state) {
-    mask.data[pos] |= m;
+    ((u8*)mask.data)[pos] |= m;
   } else {
-    mask.data[pos] &= ~m;
+    ((u8*)mask.data)[pos] &= ~m;
+  }
+}
+
+
+void tagmask_fill_from_buffer(struct TagMask mask, void* buf, size_t buf_size) {
+  size_t l = mask.byte_len;
+  if (l > buf_size) {
+    memcpy(mask.data, buf, buf_size);
+    memset(mask.data + buf_size, 0, l - buf_size);
+  } else {
+    memcpy(mask.data, buf, l);
   }
 }
 
@@ -86,6 +97,26 @@ void tagmask_or_mask(struct TagMask result, const struct TagMask arg) {
 
   if (arg.byte_len < ml) { ml = arg.byte_len; }
   for (i = 0; i < ml; ++i) {
-    result.data[i] |= arg.data[i];
+    ((u8*)result.data)[i] |= ((u8*)arg.data)[i];
   }
+}
+
+
+bool tagmask_check_filter(const struct TagMask item, const struct TagMask on_mask,
+    const struct TagMask off_mask) {
+  size_t i;
+
+  if (on_mask.byte_len != off_mask.byte_len) { return false; }
+  if (item.byte_len != on_mask.byte_len) { return false; }
+  if (!item.data || !on_mask.data || !off_mask.data) { return false; }
+
+  for (i = 0; i < item.byte_len; ++i) { // TODO IMPROVE PERFORMANCE (x*8 byte)
+    const u8 vi = ((const u8*)item.data)[i];
+    const u8 von = ((const u8*)on_mask.data)[i];
+    const u8 voff = ((const u8*)off_mask.data)[i];
+
+    if ((vi & von) != von) { return false; }
+    if ((~vi & voff) != voff) { return false; }
+  }
+  return true;
 }

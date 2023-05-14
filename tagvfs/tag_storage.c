@@ -205,7 +205,8 @@ const size_t kNotFoundIno = (size_t)(-1);
 /* Проверяет тэг на валидность (не удалён). Это быстрее, чем вычитывать весь тэг
 \param tag - номер тэга
 \return 0 - невалидный (удалённый), 1 - валидный (активный), <0 - ошибка */
-int CheckTagIsActive(struct StorageRaw* sr, size_t tag) {
+// TODO RENAME WITHOUT BOOL
+bool CheckTagIsActiveBool(struct StorageRaw* sr, size_t tag) {
   struct TagHeader th;
   loff_t pos;
   size_t rs;
@@ -216,7 +217,8 @@ int CheckTagIsActive(struct StorageRaw* sr, size_t tag) {
   pos = sr->tag_table_pos + tag * sr->tag_record_size;
   rs = kernel_read(sr->storage_file, &th, sizeof(struct TagHeader), &pos);
   if (rs != sizeof(struct TagHeader)) {
-    return -EFAULT;
+    // taginfo is out of file
+    return false;
   }
 
   return th.tag_flags != 0 ? 1: 0;
@@ -255,7 +257,34 @@ err:
   return res;
 }
 
-/*! Вычитывает инфомрацию о файле по номеру (ino). Для данных выдуляет блок
+
+/* Проверяет файл на валидность (не удалён). Это быстрее, чем вычитывать весь файл
+\param file - номер файла
+\return 0 - невалидный (удалённый), 1 - валидный (активный), <0 - ошибка */
+bool CheckFileIsActive(struct StorageRaw* sr, size_t file) {
+  struct FileBlockHeader bh;
+  loff_t pos;
+  size_t rs;
+
+  BUG_ON(!sr);
+  BUG_ON(!sr->storage_file);
+
+  if (file >= sr->fileblock_amount) {
+    return false;
+  }
+
+  pos = sr->fileblock_table_pos + file * sr->fileblock_size;
+  rs = kernel_read(sr->storage_file, &bh, sizeof(struct FileBlockHeader), &pos);
+  if (rs != sizeof(struct FileBlockHeader)) {
+    return false;
+  }
+
+  return bh.prev_block_index == file;
+}
+
+
+
+/*! Вычитывает информацию о файле по номеру (ino). Для данных выдуляет блок
  памяти.
 \param stor описатель хранилища
 \param ino номер файла
@@ -360,13 +389,13 @@ void FreeFileData(void** data, size_t* data_size) {
 }
 
 /* ??? */
-int GetFileInfo(struct StorageRaw* sr, size_t ino, void* tag,
+int GetFileInfo(struct StorageRaw* sr, size_t ino, struct TagMask* tag_mask,
     struct qstr* link_name, struct qstr* link_target) {
   void* data = NULL;
   size_t data_size = 0;
   int res;
   struct FileHeader* fh;
-  size_t postag, namepos, targetpos;
+  size_t tagpos, namepos, targetpos;
   size_t taglen, namelen, targetlen;
 
   if (!sr) { return -EINVAL; }
@@ -377,13 +406,14 @@ int GetFileInfo(struct StorageRaw* sr, size_t ino, void* tag,
   }
 
   fh = (struct FileHeader*)(data);
-  postag = sizeof(struct FileHeader);
+  tagpos = sizeof(struct FileHeader);
   taglen = le16_to_cpu(fh->tags_field_size);
-  if (tag) {
-    // TODO implement
+  if (tag_mask) {
+    *tag_mask = tagmask_init_zero(sr->tag_record_max_amount);
+    tagmask_fill_from_buffer(*tag_mask, data + tagpos, taglen);
   }
 
-  namepos = postag + taglen;
+  namepos = tagpos + taglen;
   namelen = le16_to_cpu(fh->link_name_size);
   if (link_name) {
     *link_name = alloc_qstr_from_str(data + namepos, namelen);
@@ -671,12 +701,6 @@ size_t tagfs_get_tagino_by_name(Storage stor, const struct qstr name) {
 }
 
 
-struct qstr tagfs_get_first_tag(Storage stor, size_t* tagino) {
-  *tagino = (size_t)(-1);
-  return tagfs_get_next_tag(stor, tagino);
-}
-
-
 // TODO PERFORMANCE Сделать подсчёт общего количества тэгов и делать быструю проверку на выход за существующее количество. Это будет часто запрашиваться
 struct qstr tagfs_get_nth_tag(Storage stor, size_t index, size_t* tagino) {
   size_t i;
@@ -688,10 +712,7 @@ struct qstr tagfs_get_nth_tag(Storage stor, size_t index, size_t* tagino) {
   sr = (struct StorageRaw*)(stor);
 
   for (i = 0, cur_index = 0; i < sr->tag_filled_records; ++i) {
-    int res = CheckTagIsActive(sr, i);
-    if (res < 0) { goto err; }
-    if (res == 0) { continue; }
-
+    if (!CheckTagIsActiveBool(sr, i)) { continue; }
     // Has found real/active tag. Check nth index
     if (cur_index != index) {
       ++cur_index;
@@ -778,37 +799,73 @@ enum FSSpecialName tagfs_get_special_type(Storage stor, struct qstr name) {
   return kFSSpecialNameUndefined;
 }
 
-void tagfs_get_first_name(Storage stor, size_t start_ino,
-    const struct TagMask* mask, size_t* found_ino, struct qstr* name) {
-  // TODO NEED TO IMPROVE PERFORMANCE
-  struct StorageRaw* sr;
+struct qstr tagfs_get_nth_file(Storage stor, const struct TagMask on_mask,
+    const struct TagMask off_mask, size_t index, size_t* found_ino) {
   size_t i;
+  size_t cur_index;
+  struct StorageRaw* sr;
 
   if (!stor) { goto err; }
   sr = (struct StorageRaw*)(stor);
 
-  for (i = start_ino; i < sr->fileblock_amount; ++i) {
-    struct qstr res;
+  for (i = 0, cur_index = 0; i < sr->fileblock_amount; ++i) {
+    struct qstr res = get_null_qstr();
+    struct TagMask mask = tagmask_empty();
 
-    if (GetFileInfo(sr, i, NULL, &res, NULL)) {
-      continue;
+    if (!CheckFileIsActive(sr, i)) { continue; }
+    if (GetFileInfo(sr, i, &mask, &res, NULL)) { continue; }
+    if (!tagmask_check_filter(mask, on_mask, off_mask)) { goto free_next; }
+
+    if (cur_index == index) {
+      if (found_ino) { *found_ino = i; }
+      tagmask_release(&mask);
+      return res;
     }
 
-    if (name) {
-      *name = res;
-    } else {
-      free_qstr(&res);
-    }
-    *found_ino = i;
-    return;
+free_next:
+    tagmask_release(&mask);
+    free_qstr(&res);
   }
 
 err:
-  *found_ino = kNotFoundIno;
-  if (name) { *name = kNullQstr; }
+  if (found_ino) { *found_ino = kNotFoundIno; }
+  return get_null_qstr();
 }
 
-size_t tagfs_get_ino_of_name(Storage stor, const struct qstr name) {
+
+struct qstr tagfs_get_next_file(Storage stor, const struct TagMask on_mask,
+    const struct TagMask off_mask, size_t* ino) {
+  // TODO NEED TO IMPROVE PERFORMANCE
+  size_t i;
+  struct StorageRaw* sr;
+
+  if (!stor) { goto err; }
+  sr = (struct StorageRaw*)(stor);
+
+  for (i = *ino + 1; i < sr->fileblock_amount; ++i) {
+    struct qstr res = get_null_qstr();
+    struct TagMask mask = tagmask_empty();
+
+    if (!CheckFileIsActive(sr, i)) { continue; }
+    if (GetFileInfo(sr, i, &mask, &res, NULL)) { continue; }
+    if (!tagmask_check_filter(mask, on_mask, off_mask)) { goto free_next; }
+
+    *ino = i;
+    tagmask_release(&mask);
+    return res;
+    // ----------------------
+free_next:
+    tagmask_release(&mask);
+    free_qstr(&res);
+  }
+
+err:
+  *ino = kNotFoundIno;
+  return get_null_qstr();
+}
+
+
+size_t tagfs_get_fileino_by_name(Storage stor, const struct qstr name) {
   // TODO NEED TO IMPROVE PERFORMANCE
   struct StorageRaw* sr;
   size_t i;
@@ -857,4 +914,13 @@ int tagfs_add_new_tag(Storage stor, const struct qstr tag_name) {
   if (!stor) { return -EINVAL; }
   sr = (struct StorageRaw*)(stor);
   return AddTag(sr, tag_name.name, tag_name.len);
+}
+
+
+size_t tagfs_get_maximum_tags_amount(Storage stor) {
+  struct StorageRaw* sr;
+
+  BUG_ON(!stor);
+  sr = (struct StorageRaw*)(stor);
+  return sr->tag_record_max_amount;
 }

@@ -7,6 +7,7 @@
 #include <linux/string.h>
 
 #include "common.h"
+#include "dentry_info.h"
 #include "tag_allfiles_dir.h"
 #include "tag_dir.h"
 #include "tag_file.h"
@@ -82,10 +83,18 @@ int tagfs_root_release(struct inode *inode, struct file *file) {
 }
 
 int tagfs_dentry_init(struct dentry* de) {
+  de->d_fsdata = kzalloc(sizeof(struct DentryInfo), GFP_KERNEL);
+  if (!de->d_fsdata) { return -ENOMEM; }
   return 0;
 }
 
 void tagfs_dentry_release(struct dentry* de) {
+  struct DentryInfo* deinfo = (struct DentryInfo*)(de->d_fsdata);
+
+  BUG_ON(!deinfo);
+  tagmask_release(&deinfo->mask);
+  kfree(de->d_fsdata);
+  de->d_fsdata = NULL;
 }
 
 

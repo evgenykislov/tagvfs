@@ -16,39 +16,29 @@ struct dir_data {
 
 
 int tagfs_allfiles_dir_iterate(struct file* f, struct dir_context* dc) {
-  struct dir_data* dd;
-  size_t counter;
   size_t ino;
   Storage stor;
+  struct dentry* parent;
+  struct qstr name = get_null_qstr();
+  size_t start_pos = dc->pos - 2;
+  struct TagMask zero;
 
   stor = inode_storage(file_inode(f));
-
+  parent = file_dentry(f);
+  if (!parent) { return -EFAULT; }
+  zero = tagmask_init_zero(tagfs_get_maximum_tags_amount(stor));
   if (!dir_emit_dots(f, dc)) { return -ENOMEM; }
 
-  counter = 2;
-  ino = 0;
-  dd = (struct dir_data*)(f->private_data);
-  while (true) {
-    size_t fino;
-    struct qstr name = get_null_qstr();
-    bool skip;
-
-    skip = counter < dc->pos ? true : false;
-
-    tagfs_get_first_name(stor, ino, NULL /* TODO */, &fino, &name);
-    if (fino == kNotFoundIno) {
+  for (name = tagfs_get_nth_file(stor, zero, zero, start_pos, &ino);
+      ino != kNotFoundIno; name = tagfs_get_next_file(stor, zero, zero, &ino)) {
+    if (ino == kNotFoundIno) {
       break;
     }
 
-    ino = fino + 1;
-    ++counter;
-
-    if (!skip) {
-      if (!dir_emit(dc, name.name, name.len, fino + kFSRealFilesStartIno, DT_LNK)) {
+    if (!dir_emit(dc, name.name, name.len, ino + kFSRealFilesStartIno, DT_LNK)) {
         return -ENOMEM;
-      }
-      dc->pos += 1;
     }
+    dc->pos += 1;
 
     free_qstr(&name);
   }
@@ -82,7 +72,7 @@ struct dentry* tagfs_allfiles_dir_lookup(struct inode* dir, struct dentry *de,
 
   sb = dir->i_sb;
   stor = super_block_storage(sb);
-  ino = tagfs_get_ino_of_name(stor, de->d_name);
+  ino = tagfs_get_fileino_by_name(stor, de->d_name);
   if (ino == kNotFoundIno) {
     d_add(de, NULL);
     return NULL;

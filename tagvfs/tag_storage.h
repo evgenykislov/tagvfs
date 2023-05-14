@@ -58,9 +58,6 @@ size_t tagfs_get_tagino_by_name(Storage stor, const struct qstr name);
 \return строка с именем тэга. Строку необходимо потом удалить */
 struct qstr tagfs_get_nth_tag(Storage stor, size_t index, size_t* tagino);
 
-/* ??? */ // TODO переделать на использование tagfs_get_nth_tag
-struct qstr tagfs_get_first_tag(Storage stor, size_t* tagino);
-
 
 /*! Возвращает название следующего (после tagino) тэга. Индекс нового тэга
 перезаписывает в tagino. Если тэгов больше нет, то возвращается пустая строка
@@ -92,6 +89,7 @@ struct qstr tagfs_get_special_name(Storage stor, enum FSSpecialName name);
 возвращается kFSSpecialNameUndefined */
 enum FSSpecialName tagfs_get_special_type(Storage stor, const struct qstr name);
 
+// TODO Актуализировать описание
 /*! Ищет первое вхождение файла, который имеет номер равный или более start_ino и
 соответствует маске mask. Номера начинаются с нуля, номера уникальны, следующий поиск можно начинать с ранее найденного номера + 1.
 \param start_ino начальный номер, с которого начинать поиск
@@ -103,13 +101,19 @@ enum FSSpecialName tagfs_get_special_type(Storage stor, const struct qstr name);
 строка. Строку потом необходимо явно удалить. Если
 значение имени не требуется, то можно параметр передавать как NULL */
 // TODO Переделать на использование, аналогично nth_tag
-void tagfs_get_first_name(Storage stor, size_t start_ino,
-    const struct TagMask* mask, size_t* found_ino, struct qstr* name);
+struct qstr tagfs_get_nth_file(Storage stor, const struct TagMask on_mask,
+    const struct TagMask off_mask, size_t index, size_t* found_ino);
+
+/*! Находит номер файла с именем ino  ????
+\param name имя файла, номер которого нужно получить
+\return номер файла или kNotFoundIno (если файл не найден) */
+struct qstr tagfs_get_next_file(Storage stor, const struct TagMask on_mask,
+    const struct TagMask off_mask, size_t* ino);
 
 /*! Находит номер файла с именем ino
 \param name имя файла, номер которого нужно получить
 \return номер файла или kNotFoundIno (если файл не найден) */
-size_t tagfs_get_ino_of_name(Storage stor, const struct qstr name);
+size_t tagfs_get_fileino_by_name(Storage stor, const struct qstr name);
 
 
 /*! Получить результирующую ссылку на файл.
@@ -130,6 +134,10 @@ size_t tagfs_add_new_file(Storage stor, const char* target_name,
 \param tag_name имя тэга
 \return 0 - всё хорошо, или отрицательный код ошибки */
 int tagfs_add_new_tag(Storage stor, const struct qstr tag_name);
+
+
+/* ??? */
+size_t tagfs_get_maximum_tags_amount(Storage stor);
 
 
 #endif // TAG_STORAGE_H
