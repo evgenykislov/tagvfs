@@ -7,7 +7,7 @@
 #include <linux/string.h>
 
 #include "common.h"
-#include "dentry_info.h"
+#include "inode_info.h"
 #include "tag_allfiles_dir.h"
 #include "tag_dir.h"
 #include "tag_file.h"
@@ -80,21 +80,6 @@ int tagfs_root_open(struct inode *inode, struct file *file) {
 
 int tagfs_root_release(struct inode *inode, struct file *file) {
   return 0;
-}
-
-int tagfs_dentry_init(struct dentry* de) {
-  de->d_fsdata = kzalloc(sizeof(struct DentryInfo), GFP_KERNEL);
-  if (!de->d_fsdata) { return -ENOMEM; }
-  return 0;
-}
-
-void tagfs_dentry_release(struct dentry* de) {
-  struct DentryInfo* deinfo = (struct DentryInfo*)(de->d_fsdata);
-
-  BUG_ON(!deinfo);
-  tagmask_release(&deinfo->mask);
-  kfree(de->d_fsdata);
-  de->d_fsdata = NULL;
 }
 
 
@@ -170,14 +155,8 @@ struct inode_operations tagfs_root_inode_ops = {
 
 
 static const struct super_operations tagfs_ops = {
-  .statfs = simple_statfs,
-  .drop_inode = generic_delete_inode
-};
-
-
-static const struct dentry_operations tagfs_common_dentry_ops = {
-  .d_init = tagfs_dentry_init,
-  .d_release = tagfs_dentry_release
+  .alloc_inode = tagfs_inode_alloc,
+  .free_inode = tagfs_inode_free
 };
 
 
@@ -195,7 +174,6 @@ static int fs_fill_superblock(struct super_block* sb, void* data, int silent) {
   sb->s_maxbytes = LLONG_MAX;
   sb->s_magic = kMagicTag;
   sb->s_op = &tagfs_ops;
-  sb->s_d_op = &tagfs_common_dentry_ops;
   sb->s_fs_info = data;
 
   // Create root inode

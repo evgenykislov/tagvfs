@@ -14,13 +14,20 @@ size_t GetTagPosition(size_t tag, u8* byte_mask) {
 }
 
 
+size_t tagmask_get_byte_len(size_t mask_len) {
+  return (mask_len + kMaskSizeAlignment * 8 - 1) / (kMaskSizeAlignment * 8) *
+      kMaskSizeAlignment;
+}
+
+
+
 struct TagMask tagmask_init_zero(size_t mask_len) {
   struct TagMask res;
 
   if (mask_len == 0) { return tagmask_empty(); }
   res.bit_len = mask_len;
   res.byte_len = (mask_len + kMaskSizeAlignment * 8 - 1) /
-      (kMaskSizeAlignment * 8);
+      (kMaskSizeAlignment * 8) * kMaskSizeAlignment;
   res.data = kzalloc(res.byte_len, GFP_KERNEL);
   if (!res.data) {
     return tagmask_empty();
@@ -52,8 +59,8 @@ void tagmask_release(struct TagMask* mask) {
 }
 
 bool tagmask_is_empty(const struct TagMask mask) {
-  BUG_ON(mask.data && !(mask.byte_len && mask.bit_len));
-  return mask.data != NULL;
+  WARN_ON(mask.data && !(mask.byte_len && mask.bit_len));
+  return mask.data == NULL;
 }
 
 bool tagmask_check_tag(const struct TagMask mask, size_t tag) {
@@ -102,6 +109,17 @@ void tagmask_or_mask(struct TagMask result, const struct TagMask arg) {
 }
 
 
+void tagmask_exclude_mask(struct TagMask result, struct TagMask arg) {
+  size_t ml = result.byte_len;
+  size_t i;
+
+  if (arg.byte_len < ml) { ml = arg.byte_len; }
+  for (i = 0; i < ml; ++i) {
+    ((u8*)result.data)[i] &= ~(((u8*)arg.data)[i]);
+  }
+}
+
+
 bool tagmask_check_filter(const struct TagMask item, const struct TagMask on_mask,
     const struct TagMask off_mask) {
   size_t i;
@@ -119,4 +137,15 @@ bool tagmask_check_filter(const struct TagMask item, const struct TagMask on_mas
     if ((~vi & voff) != voff) { return false; }
   }
   return true;
+}
+
+
+void tagmask_printk(const struct TagMask mask) {
+  size_t i;
+
+  pr_info("Mask: bit size: %zu (%zu bytes) - ", mask.bit_len, mask.byte_len);
+  for (i = 0; i < mask.byte_len / 4; ++i) {
+    pr_cont("%08x ", ((u32*)mask.data)[i]);
+  }
+  pr_cont("\n");
 }

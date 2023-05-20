@@ -17,7 +17,7 @@ SOURCES += \
 
 HEADERS += \
   common.h \
-  dentry_info.h \
+  inode_info.h \
   tag_allfiles_dir.h \
   tag_dir.h \
   tag_file.h \

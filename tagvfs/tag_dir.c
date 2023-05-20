@@ -21,6 +21,7 @@ struct dentry* tagfs_dir_lookup(struct inode* dir, struct dentry *dentry,
   return NULL;
 }
 
+// TODO REMOVE???
 const struct inode_operations tagfs_dir_inode_ops = {
   .lookup = tagfs_dir_lookup
 };

@@ -72,7 +72,7 @@ struct dentry* tagfs_allfiles_dir_lookup(struct inode* dir, struct dentry *de,
 
   sb = dir->i_sb;
   stor = super_block_storage(sb);
-  ino = tagfs_get_fileino_by_name(stor, de->d_name);
+  ino = tagfs_get_fileino_by_name(stor, de->d_name, NULL);
   if (ino == kNotFoundIno) {
     d_add(de, NULL);
     return NULL;

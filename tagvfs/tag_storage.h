@@ -53,10 +53,11 @@ size_t tagfs_get_tagino_by_name(Storage stor, const struct qstr name);
 /* Вычитывает информацию по активному тэгу с порядковым номером index (с нуля).
 При подсчёте неактивные/удалённые тэги не учитываются. Если тэг не найден,
 то возвращается пустая строка и ino тэга, равный kNotFoundIno (-1).
-\param index - номер тэга (с нуля)
+\param index - порядковый номер тэга (с нуля)
 \param taginfo - возвращает ino этого тэга. Параметр может быть NULL
 \return строка с именем тэга. Строку необходимо потом удалить */
-struct qstr tagfs_get_nth_tag(Storage stor, size_t index, size_t* tagino);
+struct qstr tagfs_get_nth_tag(Storage stor, size_t index, size_t* tag,
+    size_t* tags_amount);
 
 
 /*! Возвращает название следующего (после tagino) тэга. Индекс нового тэга
@@ -72,7 +73,8 @@ struct qstr tagfs_get_next_tag(Storage stor, size_t* tagino);
 удалён, то возвращается строка пустой длины. Строка выделяется в памяти и получатель строки должен сам её удалить.
 \param index индекс файла, по которому запрашивается информация
 \return строка с названием файла. Строка может быть пустой (NULL, нулевой длины) */
-struct qstr tagfs_get_fname_by_ino(Storage stor, size_t ino);
+struct qstr tagfs_get_fname_by_ino(Storage stor, size_t ino,
+    struct TagMask* mask);
 
 
 /*! Возвращает специальное (зарезервированное) имя согласно входному параметру.
@@ -112,14 +114,25 @@ struct qstr tagfs_get_next_file(Storage stor, const struct TagMask on_mask,
 
 /*! Находит номер файла с именем ino
 \param name имя файла, номер которого нужно получить
+???
 \return номер файла или kNotFoundIno (если файл не найден) */
-size_t tagfs_get_fileino_by_name(Storage stor, const struct qstr name);
+size_t tagfs_get_fileino_by_name(Storage stor, const struct qstr name,
+    struct TagMask* mask);
 
 
 /*! Получить результирующую ссылку на файл.
 \param ino номер файла в файловой системе
-\return Строка с целевой ссылкой. Строка выделяется впамяти и её нужно удалить */
+\return Строка с целевой ссылкой. Строка выделяется в памяти и её нужно удалить */
 struct qstr tagfs_get_file_link(Storage stor, size_t ino);
+
+
+/* Обновляем маску на существующий файл. Так как размер маски задан на этапе
+формирования файловой системы и фиксирован, то размер файловой записи не меняется
+\param fileino номер файла
+\param mask новая маска
+\return код ошибки */
+int tagfs_set_file_mask(Storage stor, size_t fileino,
+    const struct TagMask mask);
 
 
 /*! Создадим новый файл в хранилище. И возвратим номер/ino файла.
@@ -138,6 +151,9 @@ int tagfs_add_new_tag(Storage stor, const struct qstr tag_name);
 
 /* ??? */
 size_t tagfs_get_maximum_tags_amount(Storage stor);
+
+
+
 
 
 #endif // TAG_STORAGE_H

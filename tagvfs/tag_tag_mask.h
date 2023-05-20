@@ -11,6 +11,11 @@ struct TagMask {
   size_t byte_len;
 };
 
+/*! Выдать байтовый размер маски в зависимости от битового размера
+\param mask_len - количество бит в маске
+\return байтовый размер маски */
+size_t tagmask_get_byte_len(size_t mask_len);
+
 /*! Инициализировать маску пустыми флагами
 \param mask_len - количество бит в маске
 \return структура, описывающая маске. В случае ошибки возвразается пустая структура. Структуру нужно потом удалить через tagmask_release */
@@ -52,9 +57,15 @@ void tagmask_fill_from_buffer(struct TagMask mask, void* buf, size_t buf_size);
 /*! Логические операции над масками ??? */
 void tagmask_or_mask(struct TagMask result, struct TagMask arg);
 
+/*! ??? */
+void tagmask_exclude_mask(struct TagMask result, struct TagMask arg);
+
 
 /* ??? */
 bool tagmask_check_filter(const struct TagMask item, const struct TagMask on_mask,
     const struct TagMask off_mask);
+
+/* ??? */
+void tagmask_printk(const struct TagMask mask);
 
 #endif // TAG_TAG_MASK_H

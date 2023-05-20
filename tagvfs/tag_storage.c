@@ -57,13 +57,15 @@ struct StorageRaw {
   u16 tag_record_size;
   u16 tag_record_max_amount;
   u16 tag_filled_records;
-  u16 tag_mask_min_size; //!< Минимальный размер тэговой битовой маски (в байтах)
+  u16 tag_mask_byte_size; //!< Размер тэговой битовой маски (в байтах)
   u16 active_tag_amount; //!< Количество активных (не-удалённых) тэгов
 
   u64 fileblock_table_pos;
   u16 fileblock_size;
   u64 fileblock_amount;
-  u64 file_amount;
+  u64 file_amount; // TODO CHECK USAGE
+
+  size_t min_fileblock_for_seek_empty; // Номер блока, с которого можно начинать поиск свободного блока (для ускорения файловых операций)
 
   struct file* storage_file;
 };
@@ -104,11 +106,13 @@ int OpenTagFS(Storage* stor, const char* file_storage) {
   sr->tag_record_max_amount = le16_to_cpu(sr->header_mem.tag_record_max_amount);
   sr->tag_filled_records = le16_to_cpu(sr->header_mem.tag_filled_records);
   sr->active_tag_amount = (u16)(-1); // TODO VALUE-VALUE-????
-  sr->tag_mask_min_size = ((sr->tag_record_max_amount + 63) / 64) * 8;
+  sr->tag_mask_byte_size = tagmask_get_byte_len(sr->tag_record_max_amount);
 
   sr->fileblock_table_pos = le64_to_cpu(sr->header_mem.fileblock_table_pos);
   sr->fileblock_size = le16_to_cpu(sr->header_mem.fileblock_size);
   sr->fileblock_amount = le64_to_cpu(sr->header_mem.fileblock_amount);
+
+  sr->min_fileblock_for_seek_empty = 0;
 
   sr->storage_file = f;
 
@@ -204,9 +208,8 @@ const size_t kNotFoundIno = (size_t)(-1);
 
 /* Проверяет тэг на валидность (не удалён). Это быстрее, чем вычитывать весь тэг
 \param tag - номер тэга
-\return 0 - невалидный (удалённый), 1 - валидный (активный), <0 - ошибка */
-// TODO RENAME WITHOUT BOOL
-bool CheckTagIsActiveBool(struct StorageRaw* sr, size_t tag) {
+\return признак валидности. true - валидный (активный) */
+bool CheckTagIsActive(struct StorageRaw* sr, size_t tag) {
   struct TagHeader th;
   loff_t pos;
   size_t rs;
@@ -284,7 +287,7 @@ bool CheckFileIsActive(struct StorageRaw* sr, size_t file) {
 
 
 
-/*! Вычитывает информацию о файле по номеру (ino). Для данных выдуляет блок
+/*! Вычитывает информацию о файле по номеру (ino). Для данных выделяется блок
  памяти.
 \param stor описатель хранилища
 \param ino номер файла
@@ -512,6 +515,89 @@ int CapFileBlock(struct StorageRaw* sr, size_t fb_index) {
   return 0;
 }
 
+
+/*! Очищает файловый блок - маркирует как свободный. Также возвращает номер
+блока, который должен продолжать цепочку файловых блоков
+\param fb_index индекс удаляемого файлового блока
+\param next_fb индекс файлового блока, который следующий в цепочке. Параметр может быть NULL
+\return код ошибки. 0 - если ошибок нет */
+int ClearFileBlock(struct StorageRaw* sr, size_t fb_index, size_t* next_fb) {
+  struct FileBlockHeader h;
+  loff_t block_pos;
+  loff_t pos;
+  size_t ws;
+
+  block_pos = sr->fileblock_table_pos + sr->fileblock_size * fb_index;
+  pos = block_pos;
+  ws = kernel_read(sr->storage_file, &h, sizeof(h), &pos);
+  if (ws != sizeof(h)) { return -EFAULT; }
+
+  if (next_fb) { *next_fb = h.next_block_index; }
+
+  h.prev_block_index = (size_t)(-1);
+  h.next_block_index = (size_t)(-1);
+  pos = block_pos;
+  ws = kernel_write(sr->storage_file, &h, sizeof(h), &pos);
+  if (ws != sizeof(h)) { return -EFAULT; }
+
+  if (sr->min_fileblock_for_seek_empty > fb_index) {
+    sr->min_fileblock_for_seek_empty = fb_index;
+  }
+  return 0;
+}
+
+
+/* Переписать (обновить) данные в файловом описателе. Другие данные остаются
+на месте, ничего не сдвигается. Если место записи выходит за границу существующей
+цепочки блоков, то запись прерывается. Функция может вызываться рекурсивно.
+\param blockino номер блока, в котором обновляются данные
+\param data данные для записи
+\param data_size размер данных для обновления
+\param data_pos позиция в файловом описателе, где обновлять данные
+\param nest_counter счётчик вложенности вызовов. В начальном вызове должен быть 0
+\return размер обновлённых данных */
+size_t UpdateDataIntoBlockChain(struct StorageRaw* sr, size_t blockino,
+    void* data, size_t data_size, size_t data_pos, size_t nest_counter) {
+  struct FileBlockHeader h;
+  loff_t block_pos;
+  loff_t pos;
+  size_t ws;
+  size_t max_data = sr->fileblock_size - sizeof(h);
+
+  pr_info("TODO update data in %zu block\n", blockino);
+
+  if (nest_counter > kMaxFileBlocks) { return 0; }
+
+  block_pos = sr->fileblock_table_pos + sr->fileblock_size * blockino;
+  pr_info("TODO block begin pos %zx\n", (size_t)block_pos);
+
+  pos = block_pos;
+  ws = kernel_read(sr->storage_file, &h, sizeof(h), &pos);
+  if (ws != sizeof(h)) { return 0; }
+
+  if (data_pos < max_data) {
+    size_t tail = max_data - data_pos;
+    if (tail > data_size) {
+      tail = data_size;
+    }
+    pos = block_pos + sizeof(h) + data_pos;
+    ws = kernel_write(sr->storage_file, data, tail, &pos);
+    if (ws != tail) { return ws; }
+    if (ws == data_size) { return ws; }
+    if (h.next_block_index == blockino) {
+      return ws;
+    }
+
+    return ws + UpdateDataIntoBlockChain(sr, h.next_block_index, data + ws,
+        data_size - ws, 0, nest_counter + 1);
+  }
+
+  // Нет записи в текущем блоке. Идём в следующий
+  if (h.next_block_index == blockino) { return 0; }
+  return UpdateDataIntoBlockChain(sr, h.next_block_index, data, data_size,
+      data_pos - max_data, nest_counter + 1);
+}
+
 /* ??? */
 int IncTagFilledAmount(struct StorageRaw* sr) {
   loff_t zeropos = 0;
@@ -542,17 +628,17 @@ size_t AddFile(struct StorageRaw* sr, const char* link_name, size_t link_name_le
   size_t ino = kNotFoundIno;
 
 
-  file_info_size = sizeof(struct FileHeader) + sr->tag_mask_min_size + link_name_len + target_link_len;
+  file_info_size = sizeof(struct FileHeader) + sr->tag_mask_byte_size + link_name_len + target_link_len;
   file_info = kzalloc(file_info_size, GFP_KERNEL);
   if (!file_info) {
     goto err_nomem;
   }
 
   fh = (struct FileHeader*)(file_info);
-  fh->tags_field_size = cpu_to_le16(sr->tag_mask_min_size);
+  fh->tags_field_size = cpu_to_le16(sr->tag_mask_byte_size);
   fh->link_name_size = cpu_to_le16(link_name_len);
   fh->link_target_size = cpu_to_le16(target_link_len);
-  pos = sizeof(struct FileHeader) + sr->tag_mask_min_size;
+  pos = sizeof(struct FileHeader) + sr->tag_mask_byte_size;
   memcpy(file_info + pos, link_name, link_name_len);
   pos += link_name_len;
   memcpy(file_info + pos, target_link, target_link_len);
@@ -586,6 +672,23 @@ size_t AddFile(struct StorageRaw* sr, const char* link_name, size_t link_name_le
 err:
   kfree(file_info);
 err_nomem:
+  return res;
+}
+
+/*! Удалить запись о файле из хранилища
+\param fileino номер файла
+\return код ошибки */
+int DelFile(struct StorageRaw* sr, size_t fileino) {
+  size_t fi = fileino;
+  int res = 0;
+
+  while (true) {
+    size_t fn;
+
+    res = ClearFileBlock(sr, fi, &fn);
+    if (res) { return res; }
+    fi = fn;
+  }
   return res;
 }
 
@@ -702,17 +805,18 @@ size_t tagfs_get_tagino_by_name(Storage stor, const struct qstr name) {
 
 
 // TODO PERFORMANCE Сделать подсчёт общего количества тэгов и делать быструю проверку на выход за существующее количество. Это будет часто запрашиваться
-struct qstr tagfs_get_nth_tag(Storage stor, size_t index, size_t* tagino) {
+struct qstr tagfs_get_nth_tag(Storage stor, size_t index, size_t* tagino,
+    size_t* tags_amount) {
   size_t i;
-  size_t cur_index;
+  size_t cur_index = 0;
   struct StorageRaw* sr;
   struct qstr name = get_null_qstr();
 
   if (!stor) { goto err; }
   sr = (struct StorageRaw*)(stor);
 
-  for (i = 0, cur_index = 0; i < sr->tag_filled_records; ++i) {
-    if (!CheckTagIsActiveBool(sr, i)) { continue; }
+  for (i = 0; i < sr->tag_filled_records; ++i) {
+    if (!CheckTagIsActive(sr, i)) { continue; }
     // Has found real/active tag. Check nth index
     if (cur_index != index) {
       ++cur_index;
@@ -723,10 +827,12 @@ struct qstr tagfs_get_nth_tag(Storage stor, size_t index, size_t* tagino) {
       goto err;
     }
     if (tagino) { *tagino = i; }
+    if (tags_amount) { *tags_amount = cur_index + 1; }
     return name;
   }
 err:
   if (tagino) { *tagino = kNotFoundIno; }
+  if (tags_amount) { *tags_amount = cur_index; }
   free_qstr(&name);
   return get_null_qstr();
 }
@@ -765,13 +871,14 @@ err:
 }
 
 
-struct qstr tagfs_get_fname_by_ino(Storage stor, size_t ino) {
+struct qstr tagfs_get_fname_by_ino(Storage stor, size_t ino,
+    struct TagMask* mask) {
   struct StorageRaw* sr;
   struct qstr res;
 
   if (!stor) { return kNullQstr; }
   sr = (struct StorageRaw*)(stor);
-  if (GetFileInfo(sr, ino, NULL, &res, NULL)) { return kNullQstr; }
+  if (GetFileInfo(sr, ino, mask, &res, NULL)) { return kNullQstr; }
   return res;
 }
 
@@ -865,7 +972,8 @@ err:
 }
 
 
-size_t tagfs_get_fileino_by_name(Storage stor, const struct qstr name) {
+size_t tagfs_get_fileino_by_name(Storage stor, const struct qstr name,
+    struct TagMask* mask) {
   // TODO NEED TO IMPROVE PERFORMANCE
   struct StorageRaw* sr;
   size_t i;
@@ -875,7 +983,7 @@ size_t tagfs_get_fileino_by_name(Storage stor, const struct qstr name) {
   for (i = 0; i < sr->fileblock_amount; ++i) {
     struct qstr res;
     int cmp;
-    if (GetFileInfo(sr, i, NULL, &res, NULL)) {
+    if (GetFileInfo(sr, i, mask, &res, NULL)) {
       continue;
     }
     cmp = compare_qstr(res, name);
@@ -924,3 +1032,24 @@ size_t tagfs_get_maximum_tags_amount(Storage stor) {
   sr = (struct StorageRaw*)(stor);
   return sr->tag_record_max_amount;
 }
+
+
+int tagfs_set_file_mask(Storage stor, size_t fileino,
+    const struct TagMask mask) {
+  struct StorageRaw* sr;
+
+  BUG_ON(!stor);
+  sr = (struct StorageRaw*)(stor);
+  if (sr->tag_mask_byte_size != mask.byte_len) {
+    pr_warn("%s:%i: Wrong mask size: %u vs %u", __FILE__, __LINE__,
+        (unsigned int)sr->tag_mask_byte_size, (unsigned int)mask.byte_len);
+    return -EFAULT;
+  }
+  if (UpdateDataIntoBlockChain(sr, fileino, mask.data, mask.byte_len,
+      sizeof(struct FileHeader), 0) != mask.byte_len) {
+    return -EFAULT;
+  }
+
+  return 0;
+}
+

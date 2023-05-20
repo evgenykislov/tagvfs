@@ -21,8 +21,6 @@ const char* flink_getlink(struct dentry* de, struct inode* inode,
   Storage stor = inode_storage(inode);
   const char* res = kEmptyLink;
 
-  pr_info("TODO getlink for ino %u\n", (unsigned int)(inode->i_ino));
-
   if (inode->i_ino < kFSRealFilesStartIno || inode->i_ino > kFSRealFilesFinishIno) {
     return kEmptyLink;
   }

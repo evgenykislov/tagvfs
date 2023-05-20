@@ -1,8 +1,17 @@
 #include "tag_inode.h"
 
+#include <linux/slab.h>
+
 #include "tag_dir.h"
 
-const size_t kInodeSize = 1;
+/* Структура inode-а для тэговой файловой системы */
+struct TagfsInode {
+  struct inode nod;
+  struct InodeInfo info;
+};
+
+
+const size_t kInodeSize = 1; //!< Размер файла (символьной ссылки) для файловых менеджеров
 
 
 struct inode* tagfs_create_inode(struct super_block* sb, umode_t mode,
@@ -30,6 +39,41 @@ struct inode* tagfs_create_inode(struct super_block* sb, umode_t mode,
   return n;
 }
 
+
+struct inode* tagfs_inode_alloc(struct super_block *sb) {
+  struct TagfsInode* d;
+
+  d = kzalloc(sizeof(struct TagfsInode), GFP_KERNEL);
+  if (!d) { return NULL; }
+
+  // Обязательно инициализировать, иначе при размонтировании будет крэш
+  inode_init_once(&(d->nod));
+
+  d->info.tag_ino = 0;
+  d->info.on_mask = tagmask_empty();
+  d->info.off_mask = tagmask_empty();
+
+  return &(d->nod);
+}
+
+
+void tagfs_inode_free(struct inode* nod) {
+  struct TagfsInode* d;
+
+  d = container_of(nod, struct TagfsInode, nod);
+
+  tagmask_release(&(d->info.on_mask));
+  tagmask_release(&(d->info.off_mask));
+
+  kfree(d);
+}
+
+
+struct InodeInfo* get_inode_info(struct inode* nod) {
+  struct TagfsInode* d = container_of(nod, struct TagfsInode, nod);
+  return &(d->info);
+}
+
 void tagfs_printk_inode(const struct inode* ind, unsigned int indent) {
   #define kIndentStrSize 10
   char ind_str[kIndentStrSize + 1] = "          ";
@@ -47,29 +91,4 @@ void tagfs_printk_inode(const struct inode* ind, unsigned int indent) {
   pr_info("%s  i_nlink: %x\n", ind_str, ind->i_nlink);
   pr_info("%s  i_count: %x\n", ind_str, atomic_read(&ind->i_count));
   pr_info("%s  i_sb: %p\n", ind_str, ind->i_sb);
-}
-
-
-void tagfs_printk_kstat(const struct kstat* stat, unsigned int indent) {
-  #define kIndentStrSize 10
-  char ind_str[kIndentStrSize + 1] = "          ";
-  if (indent < kIndentStrSize) {
-    ind_str[indent] = '\0';
-  }
-
-  pr_info("%skstat:\n", ind_str);
-  if (!stat) {
-    pr_info("%s  NULL\n", ind_str);
-    return;
-  }
-  pr_info("%s  result_mask: %08X\n", ind_str, stat->result_mask);
-  pr_info("%s  mode: 0%o\n", ind_str, stat->mode);
-  pr_info("%s  ino: %u\n", ind_str, (unsigned int)(stat->ino));
-  pr_info("%s  nlink: %u\n", ind_str, stat->nlink);
-  pr_info("%s  blksize: %u\n", ind_str, (unsigned int)(stat->blksize));
-  pr_info("%s  user: %u\n", ind_str, (unsigned int)(stat->uid.val));
-  pr_info("%s  group: %u\n", ind_str, (unsigned int)(stat->gid.val));
-  pr_info("%s  size: %u\n", ind_str, (unsigned int)(stat->size));
-  pr_info("%s  blocks: %u\n", ind_str, (unsigned int)(stat->blocks));
-  pr_info("%s  mnt_id: %u\n", ind_str, (unsigned int)(stat->mnt_id));
 }
