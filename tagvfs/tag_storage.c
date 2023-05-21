@@ -58,7 +58,7 @@ struct StorageRaw {
   u16 tag_record_max_amount;
   u16 tag_filled_records;
   u16 tag_mask_byte_size; //!< Размер тэговой битовой маски (в байтах)
-  u16 active_tag_amount; //!< Количество активных (не-удалённых) тэгов
+  u16 active_tag_amount; //!< Вычисляемое: Количество активных (не-удалённых) тэгов TODO LOCK
 
   u64 fileblock_table_pos;
   u16 fileblock_size;
@@ -69,6 +69,8 @@ struct StorageRaw {
 
   struct file* storage_file;
 };
+
+extern void CalculateActiveTagAmount(struct StorageRaw* sr);
 
 /*! Открывает файл-хранилище и инициализирует экземпляр stor
 \param stor инициализируемое хранилище
@@ -115,6 +117,8 @@ int OpenTagFS(Storage* stor, const char* file_storage) {
   sr->min_fileblock_for_seek_empty = 0;
 
   sr->storage_file = f;
+
+  CalculateActiveTagAmount(sr);
 
   return 0;
   // --------------
@@ -226,6 +230,21 @@ bool CheckTagIsActive(struct StorageRaw* sr, size_t tag) {
 
   return th.tag_flags != 0 ? 1: 0;
 }
+
+
+/*! Посчитаем и заполним количество активных тэгов */
+void CalculateActiveTagAmount(struct StorageRaw* sr) {
+  size_t i;
+  size_t amount = 0;
+
+  for (i = 0; i < sr->tag_filled_records; ++i) {
+    if (!CheckTagIsActive(sr, i)) { continue; }
+    // Has found real/active tag
+    ++amount;
+  }
+  sr->active_tag_amount = amount;
+}
+
 
 int ReadTagName(struct StorageRaw* sr, size_t tag, struct qstr* name) {
   void* tag_info;
@@ -805,8 +824,7 @@ size_t tagfs_get_tagino_by_name(Storage stor, const struct qstr name) {
 
 
 // TODO PERFORMANCE Сделать подсчёт общего количества тэгов и делать быструю проверку на выход за существующее количество. Это будет часто запрашиваться
-struct qstr tagfs_get_nth_tag(Storage stor, size_t index, size_t* tagino,
-    size_t* tags_amount) {
+struct qstr tagfs_get_nth_tag(Storage stor, size_t index, size_t* tagino) {
   size_t i;
   size_t cur_index = 0;
   struct StorageRaw* sr;
@@ -827,12 +845,10 @@ struct qstr tagfs_get_nth_tag(Storage stor, size_t index, size_t* tagino,
       goto err;
     }
     if (tagino) { *tagino = i; }
-    if (tags_amount) { *tags_amount = cur_index + 1; }
     return name;
   }
 err:
   if (tagino) { *tagino = kNotFoundIno; }
-  if (tags_amount) { *tags_amount = cur_index; }
   free_qstr(&name);
   return get_null_qstr();
 }
@@ -1051,5 +1067,14 @@ int tagfs_set_file_mask(Storage stor, size_t fileino,
   }
 
   return 0;
+}
+
+
+size_t tagfs_get_active_tags_amount(Storage stor) {
+  struct StorageRaw* sr;
+
+  BUG_ON(!stor);
+  sr = (struct StorageRaw*)(stor);
+  return (size_t)sr->active_tag_amount;
 }
 

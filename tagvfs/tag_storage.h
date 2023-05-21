@@ -56,8 +56,7 @@ size_t tagfs_get_tagino_by_name(Storage stor, const struct qstr name);
 \param index - порядковый номер тэга (с нуля)
 \param taginfo - возвращает ino этого тэга. Параметр может быть NULL
 \return строка с именем тэга. Строку необходимо потом удалить */
-struct qstr tagfs_get_nth_tag(Storage stor, size_t index, size_t* tag,
-    size_t* tags_amount);
+struct qstr tagfs_get_nth_tag(Storage stor, size_t index, size_t* tag);
 
 
 /*! Возвращает название следующего (после tagino) тэга. Индекс нового тэга
@@ -151,6 +150,10 @@ int tagfs_add_new_tag(Storage stor, const struct qstr tag_name);
 
 /* ??? */
 size_t tagfs_get_maximum_tags_amount(Storage stor);
+
+
+/* ??? */
+size_t tagfs_get_active_tags_amount(Storage stor);
 
 
 
