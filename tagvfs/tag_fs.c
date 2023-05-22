@@ -93,19 +93,19 @@ struct dentry* tagfs_root_lookup(struct inode* parent_i, struct dentry* de,
   nt = tagfs_get_special_type(stor, de->d_name);
   switch (nt) {
     case kFSSpecialNameAllFiles:
-      if (!tagfs_fills_dentry_by_inode(sb, de, kAllFilesIndex,
+      if (!fill_lookup_dentry_by_new_directory_inode(sb, de, kAllFilesIndex,
           &tagfs_allfiles_dir_inode_ops,
           &tagfs_allfiles_dir_file_ops)) { return ERR_PTR(-ENOENT); }
       return NULL;
       break;
     case kFSSpecialNameFilesWOTags:
-      if (!tagfs_fills_dentry_by_inode(sb, de, kFilesWOTagsIndex,
+      if (!fill_lookup_dentry_by_new_directory_inode(sb, de, kFilesWOTagsIndex,
           &tagfs_dir_inode_ops,
           &tagfs_dir_file_ops)) { return ERR_PTR(-ENOENT); }
       return NULL;
       break;
     case kFSSpecialNameTags:
-      if (!tagfs_fills_dentry_by_inode(sb, de, kTagsIndex,
+      if (!fill_lookup_dentry_by_new_directory_inode(sb, de, kTagsIndex,
           &tagfs_tag_dir_inode_ops, &tagfs_tag_dir_file_ops)) {
         return ERR_PTR(-ENOENT);
       }

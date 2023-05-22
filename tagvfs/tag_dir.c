@@ -2,6 +2,11 @@
 
 #include "tag_dir.h"
 #include "tag_inode.h"
+#include "tag_storage.h"
+
+/*! Счётчик ноды для директорий. Всегда растёт. Когда заполнится - директории
+выводится не будет, придётся перезапускать модуль файловой системы */
+atomic_t dirino_counter = ATOMIC_INIT(kFSDirectoriesStartIno);
 
 
 int tagfs_dir_iterate(struct file* f, struct dir_context* dc) {
@@ -34,18 +39,51 @@ const struct file_operations tagfs_dir_file_ops = {
 };
 
 
-struct inode* tagfs_fills_dentry_by_inode(struct super_block* sb,
-    struct dentry* owner_de, size_t dir_index, const struct inode_operations* inode_ops,
+struct inode* create_directory_inode(struct super_block* sb,
+    struct dentry* owner_de, size_t dirino,
+    const struct inode_operations* inode_ops, const struct file_operations* file_ops) {
+  struct inode* nod;
+
+  if (dirino == 0) {
+    dirino = atomic_inc_return(&dirino_counter);
+    if (dirino < kFSDirectoriesStartIno || dirino > kFSDirectoriesFinishIno) {
+      // Выход за допустимый диапазон индексов для директорий
+      atomic_set(&dirino_counter, kFSDirectoriesFinishIno);
+      return ERR_PTR(-ENFILE);
+    }
+  }
+
+  nod = tagfs_create_inode(sb, S_IFDIR | 0777, dirino);
+  if (!nod) { return ERR_PTR(-ENOMEM); }
+  // У созданной ноды уже установлены некоторые дефалтовые операции. Если нам
+  // не нужно ставить свои то ничего не меняем
+  if (inode_ops) { nod->i_op = inode_ops; }
+  if (file_ops) { nod->i_fop = file_ops; }
+  return nod;
+}
+
+
+struct inode* fill_lookup_dentry_by_new_directory_inode(struct super_block* sb,
+    struct dentry* owner_de, size_t dirino, const struct inode_operations* inode_ops,
     const struct file_operations* file_ops) {
-  struct inode* inode;
+  struct inode* nod;
 
-  inode = tagfs_create_inode(sb, S_IFDIR | 0777, dir_index);
-  if (!inode) { return NULL; }
+  nod = create_directory_inode(sb, owner_de, dirino, inode_ops, file_ops);
+  if (IS_ERR(nod)) { return nod; }
+  d_add(owner_de, nod);
+  return nod;
+}
 
-  inode->i_op = inode_ops;
-  inode->i_fop = file_ops;
-  d_add(owner_de, inode);
-  return inode;
+
+struct inode*  fill_dentry_by_new_directory_inode(struct super_block* sb,
+    struct dentry* owner_de, size_t dirino,
+    const struct inode_operations* inode_ops, const struct file_operations* file_ops) {
+  struct inode* nod;
+
+  nod = create_directory_inode(sb, owner_de, dirino, inode_ops, file_ops);
+  if (IS_ERR(nod)) { return nod; }
+  d_instantiate(owner_de, nod);
+  return nod;
 }
 
 

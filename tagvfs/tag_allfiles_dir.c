@@ -117,16 +117,10 @@ loff_t tagfs_allfiles_dir_llseek(struct file* f, loff_t offset, int whence) {
   return -EINVAL;
 }
 
-int tagfs_allfiles_dir_mkdir(struct inode* dir,struct dentry* de,umode_t mode) {
-  Storage stor = inode_storage(dir);
-  return tagfs_add_new_tag(stor, de->d_name);
-}
-
 
 const struct inode_operations tagfs_allfiles_dir_inode_ops = {
   .lookup = tagfs_allfiles_dir_lookup,
-  .symlink = tagfs_allfiles_dir_symlink,
-  .mkdir = tagfs_allfiles_dir_mkdir
+  .symlink = tagfs_allfiles_dir_symlink
 };
 
 

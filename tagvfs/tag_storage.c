@@ -583,13 +583,9 @@ size_t UpdateDataIntoBlockChain(struct StorageRaw* sr, size_t blockino,
   size_t ws;
   size_t max_data = sr->fileblock_size - sizeof(h);
 
-  pr_info("TODO update data in %zu block\n", blockino);
-
   if (nest_counter > kMaxFileBlocks) { return 0; }
 
   block_pos = sr->fileblock_table_pos + sr->fileblock_size * blockino;
-  pr_info("TODO block begin pos %zx\n", (size_t)block_pos);
-
   pos = block_pos;
   ws = kernel_read(sr->storage_file, &h, sizeof(h), &pos);
   if (ws != sizeof(h)) { return 0; }
@@ -712,12 +708,14 @@ int DelFile(struct StorageRaw* sr, size_t fileino) {
 }
 
 
-size_t AddTag(struct StorageRaw* sr, const char* name, size_t name_len) {
+size_t AddTag(struct StorageRaw* sr, const char* name, size_t name_len,
+    size_t* tagino) {
   void* tag;
   struct TagHeader* th;
   loff_t pos;
   size_t ws;
   int res = 0;
+  size_t tino;
 
   if (sr->tag_filled_records >= sr->tag_record_max_amount) { return -ENOMEM; }
 
@@ -730,14 +728,16 @@ size_t AddTag(struct StorageRaw* sr, const char* name, size_t name_len) {
     th->tag_name_size = name_len;
   }
   memcpy(tag + sizeof(struct TagHeader), name, th->tag_name_size);
-  pos = sr->tag_table_pos + sr->tag_record_size * sr->tag_filled_records;
+  tino = sr->tag_filled_records;
+  pos = sr->tag_table_pos + sr->tag_record_size * tino;
   ws = kernel_write(sr->storage_file, tag, sr->tag_record_size, &pos);
   if (ws != sr->tag_record_size) {
     res = -EFAULT;
     goto err;
   }
 
-  res = IncTagFilledAmount(sr);
+  res = IncTagFilledAmount(sr); // TODO LOCK-LOCK-LOCK
+  if (res == 0 && tagino) { *tagino = tino; }
   // --------------
 err:
   kfree(tag);
@@ -1032,12 +1032,12 @@ size_t tagfs_add_new_file(Storage stor, const char* target_name,
 }
 
 
-int tagfs_add_new_tag(Storage stor, const struct qstr tag_name) {
+int tagfs_add_new_tag(Storage stor, const struct qstr tag_name, size_t* tagino) {
   struct StorageRaw* sr;
 
   if (!stor) { return -EINVAL; }
   sr = (struct StorageRaw*)(stor);
-  return AddTag(sr, tag_name.name, tag_name.len);
+  return AddTag(sr, tag_name.name, tag_name.len, tagino);
 }
 
 

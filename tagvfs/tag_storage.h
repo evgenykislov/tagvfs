@@ -144,8 +144,9 @@ size_t tagfs_add_new_file(Storage stor, const char* target_name,
 
 /*! Добавить новый тэг.
 \param tag_name имя тэга
+????
 \return 0 - всё хорошо, или отрицательный код ошибки */
-int tagfs_add_new_tag(Storage stor, const struct qstr tag_name);
+int tagfs_add_new_tag(Storage stor, const struct qstr tag_name, size_t* tagino);
 
 
 /* ??? */
