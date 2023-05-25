@@ -105,9 +105,20 @@ struct dentry* tagfs_root_lookup(struct inode* parent_i, struct dentry* de,
       return NULL;
       break;
     case kFSSpecialNameTags:
-      if (!fill_lookup_dentry_by_new_directory_inode(sb, de, kTagsIndex,
-          &tagfs_tag_dir_inode_ops, &tagfs_tag_dir_file_ops)) {
-        return ERR_PTR(-ENOENT);
+      {
+        struct InodeInfo* iinfo;
+        size_t mask_len;
+
+        inode = fill_lookup_dentry_by_new_directory_inode(sb, de, kTagsIndex,
+            &tagfs_tag_dir_inode_ops, &tagfs_tag_dir_file_ops);
+        if (!inode) { return ERR_PTR(-ENOENT); }
+        iinfo = get_inode_info(inode);
+        iinfo->tag_ino = 0;
+        WARN_ON(!tagmask_is_empty(iinfo->on_mask));
+        WARN_ON(!tagmask_is_empty(iinfo->off_mask));
+        mask_len = tagfs_get_maximum_tags_amount(stor);
+        iinfo->on_mask = tagmask_init_zero(mask_len);
+        iinfo->off_mask = tagmask_init_zero(mask_len);
       }
       return NULL;
       break;

@@ -27,6 +27,10 @@ struct TagMask tagmask_init_zero(size_t mask_len);
 \return см. tagmask_init_zero*/
 struct TagMask tagmask_init_by_tag(size_t mask_len, size_t tag);
 
+
+/* ??? */
+struct TagMask tagmask_init_by_mask(const struct TagMask mask);
+
 /*! ??? */
 struct TagMask tagmask_empty(void);
 
@@ -42,6 +46,9 @@ bool tagmask_is_empty(const struct TagMask mask);
 /*! Получить состояние бита тэга в маске.
 ??? */
 bool tagmask_check_tag(const struct TagMask mask, size_t tag);
+
+/* ??? */
+size_t tagmask_on_bits_amount(const struct TagMask mask);
 
 /* ???
 

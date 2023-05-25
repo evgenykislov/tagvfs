@@ -18,6 +18,10 @@ extern void* inode_storage(const struct inode* nod);
 \return структура qstr с копией сторочных данных */
 extern struct qstr alloc_qstr_from_str(const char* str, size_t len);
 
+/* ??? */
+struct qstr alloc_qstr_from_2str(const char* str1, size_t len1, const char* str2, size_t len2);
+
+
 /*! Создаёт новую строку и заполняет её данными из исходного аргумента.
 Созданную строку нужно потом явно удалить через функцию free_qstr.
 \param s исходная строка, копию которой нужно создать
@@ -37,5 +41,20 @@ extern int compare_qstr(const struct qstr n1, const struct qstr n2);
 
 /*! Возвращает пустую строку */
 extern struct qstr get_null_qstr(void);
+
+
+/*! Отрезает от начала строки заголовок (header), если он есть, и возвращает
+обрезанную строку. Если заголовка не найдено, то возваращется пустая строка.
+Прим.: если исходная строка состоит только из заголовка, то тоже возвращается
+пустая строка. В случае ошибок - возвращается пустая строка. Возвращённую строку
+нужно удалить (если она не пустая)
+\param source исходная строка
+\param header заголовок, который ищется в начале исходной строки
+\return обрезанную строку (если заголовок был) или пустую строку (если заголовка не было) */
+struct qstr qstr_trim_header_if_exist(const struct qstr source, const struct qstr header);
+
+
+/* ???? */
+struct qstr qstr_add_header(const struct qstr source, const struct qstr header);
 
 #endif // COMMON_H

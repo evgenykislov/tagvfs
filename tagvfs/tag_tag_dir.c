@@ -12,10 +12,23 @@
 
 struct FileInfo {
   // Маркеры для итерации по директории
+
+  // Некоторая позиция (значения pos, tag, file) вычитывания содержимого директории
+  // ..._pos - позиция в каталоге, с точки зрения linux (или -1, если позиции нет)
+  // ..._tag - ino тэга (или -1 если позиция соответствует не тэгу)
+  // ..._file - ino файла (или -1 если позиция соответствует не файлу)
   loff_t last_iterate_pos; //!< Позиция последней записи (возможно, неуспешной)
   size_t last_iterate_tag; //!< Номер тэга, соответствующий last_iterate_pos. Или kNotFoundIno - если позиция не тэг
   size_t last_iterate_file; //!< Номер файла, соответствующего last_iterate_pos. Или kNotFoundIno - если позиция не файл
+  loff_t aftertag_pos; //!< Позиция в каталоге после последнего тэга (начинаются файлы)
 };
+
+void pr_info_FileInfo(const struct FileInfo* fi) {
+  pr_info("FileInfo struct:\n");
+  pr_info("last_iterate_pos %d, tag %u, file %u, aftertag %d\n",
+      (int)fi->last_iterate_pos, (unsigned int)fi->last_iterate_tag,
+      (unsigned int)fi->last_iterate_file, (int)fi->aftertag_pos);
+}
 
 
 struct dentry* tagfs_tag_dir_lookup(struct inode* dir, struct dentry *de,
@@ -27,11 +40,20 @@ struct dentry* tagfs_tag_dir_lookup(struct inode* dir, struct dentry *de,
   struct InodeInfo* dir_info = get_inode_info(dir);
   struct TagMask mask = tagmask_empty();
   bool mask_suitable;
+  struct qstr np;
+  bool no_tag = false;
 
   sb = dir->i_sb;
   stor = super_block_storage(sb);
 
-  tagino = tagfs_get_tagino_by_name(stor, de->d_name);
+  np = qstr_trim_header_if_exist(de->d_name, tagfs_get_no_prefix(stor));
+  if (np.name) {
+    tagino = tagfs_get_tagino_by_name(stor, np);
+    free_qstr(&np);
+    no_tag = true;
+  } else {
+    tagino = tagfs_get_tagino_by_name(stor, de->d_name);
+  }
   if (tagino != kNotFoundIno) {
     // Имя - это тэг
     struct InodeInfo* iinfo;
@@ -49,8 +71,13 @@ struct dentry* tagfs_tag_dir_lookup(struct inode* dir, struct dentry *de,
     WARN_ON(!tagmask_is_empty(iinfo->on_mask));
     WARN_ON(!tagmask_is_empty(iinfo->off_mask));
     mask_len = tagfs_get_maximum_tags_amount(stor);
-    iinfo->on_mask = tagmask_init_by_tag(mask_len, tagino);
-    iinfo->off_mask = tagmask_init_zero(mask_len);
+    iinfo->on_mask = tagmask_init_by_mask(dir_info->on_mask);
+    iinfo->off_mask = tagmask_init_by_mask(dir_info->off_mask);
+    if (no_tag) {
+      tagmask_set_tag(iinfo->off_mask, tagino, true);
+    } else {
+      tagmask_set_tag(iinfo->on_mask, tagino, true);
+    }
 
     return NULL;
   }
@@ -198,60 +225,190 @@ int tagfs_tag_dir_mkdir(struct inode* dir,struct dentry* de, umode_t mode) {
   return 0;
 }
 
-int tagfs_tag_dir_iterate(struct file* f, struct dir_context* dc) {
-  size_t ino;
-  Storage stor;
-  struct qstr name;
-  bool tags_emit = false;
+
+int tagfs_tag_dir_iterate_tag(struct dir_context* dc, Storage stor,
+    struct FileInfo* fi, const struct InodeInfo* iinfo) {
+  const size_t kAfterDotsPos = 2; //!< Позиция после стандартных записей с одной и двумя точками
+  const size_t kRecordsPerTag = 2;
+  size_t tagpos = kAfterDotsPos;
+  size_t tagino;
+  struct TagMask excl_mask;
+  int res = 0;
+
+  struct qstr noprefix = tagfs_get_no_prefix(stor);
+  // Готовим маску с тэгами, которые уже были (excl_mask)
+  excl_mask = tagmask_init_by_mask(iinfo->on_mask);
+  tagmask_or_mask(excl_mask, iinfo->off_mask);
+
+
+  BUG_ON(dc->pos < kAfterDotsPos);
+  if (fi->last_iterate_pos == -1) {
+    // Запрос информации на самый первый тэг
+    struct qstr name = tagfs_get_nth_tag(stor, 0, excl_mask, &tagino);
+    struct qstr noname = get_null_qstr();
+    size_t dirino;
+
+    if (!name.name) {
+      fi->aftertag_pos = kAfterDotsPos;
+      goto ex;
+    }
+
+    noname = qstr_add_header(name, noprefix); // TODO CHECK noname isn't empty
+
+    fi->last_iterate_pos = kAfterDotsPos;
+    fi->last_iterate_tag = tagino;
+    // Первый тэг с "прямым" именем
+    if (dc->pos == kAfterDotsPos) {
+      if (!get_next_dirino(&dirino)) { res = -ENFILE; goto ft_err; }
+      if (!dir_emit(dc, name.name, name.len, dirino, DT_DIR)) { res = -ENOMEM; goto ft_err; }
+      ++dc->pos;
+    }
+
+    // Второй тэг с негативным именем
+    if (dc->pos == kAfterDotsPos + 1) {
+      if (!get_next_dirino(&dirino)) { res = -ENFILE; goto ft_err; }
+      if (!dir_emit(dc, name.name, name.len, dirino, DT_DIR)) { res = -ENOMEM; goto ft_err; }
+      ++dc->pos;
+    }
+
+ft_err:
+    free_qstr(&name);
+    free_qstr(&noname);
+    if (res) { goto ex; }
+  }
+
+  BUG_ON(dc->pos < kAfterDotsPos + kRecordsPerTag);
+  BUG_ON(fi->last_iterate_pos == -1);
+  BUG_ON(fi->last_iterate_tag == kNotFoundIno);
+  BUG_ON(dc->pos < (fi->last_iterate_pos + kRecordsPerTag));
+  tagino = fi->last_iterate_tag;
+  tagpos = fi->last_iterate_pos + kRecordsPerTag;
+  while (true) {
+    struct qstr noname = get_null_qstr();
+    struct qstr name = tagfs_get_next_tag(stor, excl_mask, &tagino);
+    size_t dirino;
+
+    if (!name.name) {
+      fi->aftertag_pos = tagpos;
+      goto ex;
+    }
+
+    fi->last_iterate_pos = tagpos;
+    fi->last_iterate_tag = tagino;
+
+    if (tagpos == dc->pos) {
+      if (!get_next_dirino(&dirino)) { res = -ENFILE; goto st_err; }
+      if (!dir_emit(dc, name.name, name.len, dirino, DT_DIR)) { res = -ENOMEM; goto st_err; }
+      ++dc->pos;
+    }
+    ++tagpos;
+
+    if (tagpos == dc->pos) {
+      struct qstr noname = qstr_add_header(name, noprefix); // TODO CHECK noname isn't empty
+      if (!get_next_dirino(&dirino)) { res = -ENFILE; goto st_err; }
+      if (!dir_emit(dc, noname.name, noname.len, dirino, DT_DIR)) { res = -ENOMEM; goto st_err; }
+      ++dc->pos;
+    }
+    ++tagpos;
+
+st_err:
+    free_qstr(&name);
+    free_qstr(&noname);
+    if (res) { goto ex; }
+  }
+
+ex:
+  tagmask_release(&excl_mask);
+  return res;
+}
+
+
+int tagfs_tag_dir_iterate_file(struct dir_context* dc, Storage stor,
+    struct FileInfo* fi, const struct InodeInfo* iinfo) {
   size_t file_start;
-  struct InodeInfo* iinfo;
-  size_t tags_amount;
+  size_t file_ino;
+  size_t file_pos;
 
-  stor = inode_storage(file_inode(f));
-  iinfo = get_inode_info(file_inode(f));
-  BUG_ON(!stor);
+  // Перейдём к обработке файлов
+  file_start = dc->pos - fi->aftertag_pos;
+  if (fi->last_iterate_file == -1 || file_start == 0) {
+    // Выдадим самый первый файл
+    struct qstr name = tagfs_get_nth_file(stor, iinfo->on_mask, iinfo->off_mask,
+        0, &file_ino);
+    if (!name.name) {
+      // Нету файлов. Вообще
+      return 0;
+    }
 
-  if (!dir_emit_dots(f, dc)) { return -ENOMEM; }
-
-  tags_amount = tagfs_get_active_tags_amount(stor);
-
-  // Выдадим все тэги с заданного номера. "-2" для учёта директорий "." и ".."
-  if (dc->pos < (tags_amount + 2)) {
-    for (name = tagfs_get_nth_tag(stor, dc->pos - 2, &ino);
-        ino != kNotFoundIno; name = tagfs_get_next_tag(stor, &ino)) {
-      if (!dir_emit(dc, name.name, name.len, ino + kFSRealFilesStartIno,
-          DT_LNK)) {
+    if (dc->pos == fi->aftertag_pos) {
+      if (!dir_emit(dc, name.name, name.len, file_ino + kFSRealFilesStartIno, DT_LNK)) {
         free_qstr(&name);
         return -ENOMEM;
       }
-      tags_emit = true;
       dc->pos += 1;
-      free_qstr(&name);
-    }
-  }
-
-  file_start = 0;
-  if (!tags_emit) {
-    WARN_ON(dc->pos < (tags_amount + 2));
-    file_start = dc->pos - tags_amount - 2;
-  }
-
-  for (name = tagfs_get_nth_file(stor, iinfo->on_mask, iinfo->off_mask,
-      file_start, &ino); ino != kNotFoundIno; name = tagfs_get_next_file(stor,
-      iinfo->on_mask, iinfo->off_mask, &ino)) {
-    if (ino == kNotFoundIno) {
-      break;
     }
 
-    if (!dir_emit(dc, name.name, name.len, ino + kFSRealFilesStartIno, DT_LNK)) {
-        return -ENOMEM;
-    }
-    dc->pos += 1;
-
+    fi->last_iterate_pos = fi->aftertag_pos;
+    fi->last_iterate_file = file_ino;
+    fi->last_iterate_tag = -1;
     free_qstr(&name);
   }
 
-  return 0;
+  // Выдадим остальные файлы
+  BUG_ON(dc->pos <= fi->last_iterate_pos);
+  BUG_ON(fi->last_iterate_file == -1);
+  BUG_ON(fi->last_iterate_tag != -1);
+  file_ino = fi->last_iterate_file;
+  file_pos = fi->last_iterate_pos;
+  while (true) {
+    struct qstr name = tagfs_get_next_file(stor, iinfo->on_mask, iinfo->off_mask,
+        &file_ino);
+    if (!name.name) {
+      return 0;
+    }
+    ++file_pos;
+
+    if (dc->pos == file_pos) {
+      if (!dir_emit(dc, name.name, name.len, file_ino + kFSRealFilesStartIno, DT_LNK)) {
+        free_qstr(&name);
+        return -ENOMEM;
+      }
+      dc->pos += 1;
+    }
+
+    fi->last_iterate_pos = file_pos;
+    fi->last_iterate_file = file_ino;
+  }
+}
+
+
+int tagfs_tag_dir_iterate(struct file* f, struct dir_context* dc) {
+  Storage stor;
+  struct InodeInfo* iinfo;
+  struct FileInfo* fi;
+  int res = 0;
+
+
+  stor = inode_storage(file_inode(f)); BUG_ON(!stor);
+  iinfo = get_inode_info(file_inode(f)); BUG_ON(!iinfo);
+  fi = f->private_data; BUG_ON(!fi);
+
+  // Поиск до позиции последней выдачи. Начинаем всё сначала
+  if (fi->last_iterate_pos >= dc->pos) {
+    fi->last_iterate_pos = -1;
+    fi->last_iterate_tag = -1;
+    fi->last_iterate_file = -1;
+    fi->aftertag_pos = -1;
+  }
+
+  // проверим, нужно ли обрабатывать тэги и директории-точки
+  if (fi->aftertag_pos == -1 || fi->aftertag_pos > dc->pos) {
+    if (!dir_emit_dots(f, dc)) { return -ENOMEM; }
+    res = tagfs_tag_dir_iterate_tag(dc, stor, fi, iinfo);
+    if (res) { return res; }
+  }
+
+  return tagfs_tag_dir_iterate_file(dc, stor, fi, iinfo);
 }
 
 int tagfs_tag_dir_open(struct inode* dir, struct file* f) {
@@ -263,6 +420,7 @@ int tagfs_tag_dir_open(struct inode* dir, struct file* f) {
   fi->last_iterate_pos = -1;
   fi->last_iterate_tag = kNotFoundIno;
   fi->last_iterate_file = kNotFoundIno;
+  fi->aftertag_pos = -1;
 
   return 0;
 }

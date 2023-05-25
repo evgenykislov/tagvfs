@@ -67,6 +67,8 @@ struct StorageRaw {
 
   size_t min_fileblock_for_seek_empty; // Номер блока, с которого можно начинать поиск свободного блока (для ускорения файловых операций)
 
+  struct qstr no_prefix;
+
   struct file* storage_file;
 };
 
@@ -119,6 +121,8 @@ int OpenTagFS(Storage* stor, const char* file_storage) {
   sr->storage_file = f;
 
   CalculateActiveTagAmount(sr);
+
+  sr->no_prefix = alloc_qstr_from_str("no-", 3);
 
   return 0;
   // --------------
@@ -824,7 +828,8 @@ size_t tagfs_get_tagino_by_name(Storage stor, const struct qstr name) {
 
 
 // TODO PERFORMANCE Сделать подсчёт общего количества тэгов и делать быструю проверку на выход за существующее количество. Это будет часто запрашиваться
-struct qstr tagfs_get_nth_tag(Storage stor, size_t index, size_t* tagino) {
+struct qstr tagfs_get_nth_tag(Storage stor, size_t index,
+    const struct TagMask exclude_mask, size_t* tagino) {
   size_t i;
   size_t cur_index = 0;
   struct StorageRaw* sr;
@@ -834,6 +839,7 @@ struct qstr tagfs_get_nth_tag(Storage stor, size_t index, size_t* tagino) {
   sr = (struct StorageRaw*)(stor);
 
   for (i = 0; i < sr->tag_filled_records; ++i) {
+    if (tagmask_check_tag(exclude_mask, i)) { continue; }
     if (!CheckTagIsActive(sr, i)) { continue; }
     // Has found real/active tag. Check nth index
     if (cur_index != index) {
@@ -854,7 +860,8 @@ err:
 }
 
 
-struct qstr tagfs_get_next_tag(Storage stor, size_t* tagino) {
+struct qstr tagfs_get_next_tag(Storage stor, const struct TagMask exclude_mask,
+    size_t* tagino) {
   size_t start = *tagino;
   struct StorageRaw* sr;
   struct qstr name = get_null_qstr();
@@ -869,6 +876,7 @@ struct qstr tagfs_get_next_tag(Storage stor, size_t* tagino) {
   if (!stor) { goto err; }
   sr = (struct StorageRaw*)(stor);
   while (start < sr->tag_filled_records) {
+    if (tagmask_check_tag(exclude_mask, start)) { goto next; }
     if (ReadTagName(sr, start, &name)) {
       goto err;
     }
@@ -878,6 +886,7 @@ struct qstr tagfs_get_next_tag(Storage stor, size_t* tagino) {
       return name;
     }
 
+next:
     ++start;
   }
   // ---------------
@@ -1078,3 +1087,11 @@ size_t tagfs_get_active_tags_amount(Storage stor) {
   return (size_t)sr->active_tag_amount;
 }
 
+
+const struct qstr tagfs_get_no_prefix(Storage stor) {
+  struct StorageRaw* sr;
+
+  BUG_ON(!stor);
+  sr = (struct StorageRaw*)(stor);
+  return sr->no_prefix;
+}

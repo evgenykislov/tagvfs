@@ -54,9 +54,11 @@ size_t tagfs_get_tagino_by_name(Storage stor, const struct qstr name);
 При подсчёте неактивные/удалённые тэги не учитываются. Если тэг не найден,
 то возвращается пустая строка и ino тэга, равный kNotFoundIno (-1).
 \param index - порядковый номер тэга (с нуля)
+??? маска?
 \param taginfo - возвращает ino этого тэга. Параметр может быть NULL
 \return строка с именем тэга. Строку необходимо потом удалить */
-struct qstr tagfs_get_nth_tag(Storage stor, size_t index, size_t* tag);
+struct qstr tagfs_get_nth_tag(Storage stor, size_t index,
+    const struct TagMask exclude_mask, size_t* tag);
 
 
 /*! Возвращает название следующего (после tagino) тэга. Индекс нового тэга
@@ -65,7 +67,8 @@ struct qstr tagfs_get_nth_tag(Storage stor, size_t index, size_t* tag);
 \param tagino индекс тэга, ПОСЛЕ которого искать следующий
 \return строка с именем тэга. Если тэгов нет, то возвращается пустая строка.
 Строка выделяется на памяти, её необходимо после удалить. */
-struct qstr tagfs_get_next_tag(Storage stor, size_t* tagino);
+struct qstr tagfs_get_next_tag(Storage stor, const struct TagMask exclude_mask,
+    size_t* tagino);
 
 
 /*! Возвращает имя файла по его индексу/ino. Если индекс невалидный или файл
@@ -157,7 +160,8 @@ size_t tagfs_get_maximum_tags_amount(Storage stor);
 size_t tagfs_get_active_tags_amount(Storage stor);
 
 
-
+/* ??? */
+const struct qstr tagfs_get_no_prefix(Storage stor);
 
 
 #endif // TAG_STORAGE_H

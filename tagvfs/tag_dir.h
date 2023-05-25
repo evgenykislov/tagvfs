@@ -7,6 +7,10 @@
 extern const struct inode_operations tagfs_dir_inode_ops;
 extern const struct file_operations tagfs_dir_file_ops;
 
+/* ???? */
+bool get_next_dirino(size_t* dirino);
+
+
 /*! Добавляет к негативному dentry новый inode для колбэка lookup
 \param sb суперблок
 \param owner_de структура dentry, к которой добавляется inode

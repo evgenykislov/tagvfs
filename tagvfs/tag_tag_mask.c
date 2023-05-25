@@ -45,6 +45,22 @@ struct TagMask tagmask_init_by_tag(size_t mask_len, size_t tag) {
   return res;
 }
 
+
+struct TagMask tagmask_init_by_mask(const struct TagMask mask) {
+  struct TagMask res;
+
+  res = tagmask_init_zero(mask.bit_len);
+  if (res.byte_len != mask.byte_len) {
+    tagmask_release(&res);
+    WARN_ON(true);
+    return tagmask_empty();
+  }
+
+  memcpy(res.data, mask.data, res.byte_len);
+  return res;
+}
+
+
 struct TagMask tagmask_empty(void) {
   return kEmptyMask;
 }
@@ -70,6 +86,26 @@ bool tagmask_check_tag(const struct TagMask mask, size_t tag) {
   if (tag >= mask.bit_len) { return false; }
   pos = GetTagPosition(tag, &m);
   return (((u8*)mask.data)[pos] & m) != 0;
+}
+
+
+size_t tagmask_on_bits_amount(const struct TagMask mask) {
+  size_t pos;
+  size_t c = 0;
+
+  for (pos = 0; pos < mask.byte_len; ++pos) {
+    u8 v = ((u8*)mask.data)[pos];
+    if (v & 0x01) { ++c; }
+    if (v & 0x02) { ++c; }
+    if (v & 0x04) { ++c; }
+    if (v & 0x08) { ++c; }
+    if (v & 0x10) { ++c; }
+    if (v & 0x20) { ++c; }
+    if (v & 0x40) { ++c; }
+    if (v & 0x80) { ++c; }
+  }
+
+  return c;
 }
 
 void tagmask_set_tag(struct TagMask mask, size_t tag, bool state) {

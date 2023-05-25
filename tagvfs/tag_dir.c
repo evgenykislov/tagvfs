@@ -8,6 +8,16 @@
 выводится не будет, придётся перезапускать модуль файловой системы */
 atomic_t dirino_counter = ATOMIC_INIT(kFSDirectoriesStartIno);
 
+bool get_next_dirino(size_t* dirino) {
+  *dirino = atomic_inc_return(&dirino_counter);
+  if (*dirino < kFSDirectoriesStartIno || *dirino > kFSDirectoriesFinishIno) {
+    // Выход за допустимый диапазон индексов для директорий
+    atomic_set(&dirino_counter, kFSDirectoriesFinishIno);
+    return false;
+  }
+  return true;
+}
+
 
 int tagfs_dir_iterate(struct file* f, struct dir_context* dc) {
   return 0; // TODO There is no records
@@ -45,10 +55,7 @@ struct inode* create_directory_inode(struct super_block* sb,
   struct inode* nod;
 
   if (dirino == 0) {
-    dirino = atomic_inc_return(&dirino_counter);
-    if (dirino < kFSDirectoriesStartIno || dirino > kFSDirectoriesFinishIno) {
-      // Выход за допустимый диапазон индексов для директорий
-      atomic_set(&dirino_counter, kFSDirectoriesFinishIno);
+    if (!get_next_dirino(&dirino)) {
       return ERR_PTR(-ENFILE);
     }
   }
