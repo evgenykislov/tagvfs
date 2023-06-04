@@ -267,7 +267,7 @@ int tagfs_tag_dir_iterate_tag(struct dir_context* dc, Storage stor,
     // Второй тэг с негативным именем
     if (dc->pos == kAfterDotsPos + 1) {
       if (!get_next_dirino(&dirino)) { res = -ENFILE; goto ft_err; }
-      if (!dir_emit(dc, name.name, name.len, dirino, DT_DIR)) { res = -ENOMEM; goto ft_err; }
+      if (!dir_emit(dc, noname.name, noname.len, dirino, DT_DIR)) { res = -ENOMEM; goto ft_err; }
       ++dc->pos;
     }
 

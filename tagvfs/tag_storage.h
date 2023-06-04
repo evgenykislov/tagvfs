@@ -145,6 +145,10 @@ size_t tagfs_add_new_file(Storage stor, const char* target_name,
     const struct qstr link_name);
 
 
+/*! Удалить файл из хранилища ??? */
+int tagfs_del_file(Storage stor, const struct qstr file);
+
+
 /*! Добавить новый тэг.
 \param tag_name имя тэга
 ????

@@ -117,10 +117,18 @@ loff_t tagfs_allfiles_dir_llseek(struct file* f, loff_t offset, int whence) {
   return -EINVAL;
 }
 
+int tagfs_allfiles_dir_unlink(struct inode* dirnod,struct dentry* de) {
+  Storage stor = inode_storage(dirnod);
+
+  pr_info("TODO invoker unlink for %30s\n", de->d_name.name);
+
+  return tagfs_del_file(stor, de->d_name);
+}
 
 const struct inode_operations tagfs_allfiles_dir_inode_ops = {
   .lookup = tagfs_allfiles_dir_lookup,
-  .symlink = tagfs_allfiles_dir_symlink
+  .symlink = tagfs_allfiles_dir_symlink,
+  .unlink = tagfs_allfiles_dir_unlink
 };
 
 
