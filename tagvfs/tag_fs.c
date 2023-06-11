@@ -116,8 +116,7 @@ struct dentry* tagfs_root_lookup(struct inode* parent_i, struct dentry* de,
       break;
     case kFSSpecialNameFilesWOTags:
       if (!fill_lookup_dentry_by_new_directory_inode(sb, de, kFilesWOTagsIndex,
-          &tagfs_dir_inode_ops,
-          &tagfs_dir_file_ops)) { return ERR_PTR(-ENOENT); }
+          NULL, NULL)) { return ERR_PTR(-ENOENT); }
       return NULL;
       break;
     case kFSSpecialNameTags:

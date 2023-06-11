@@ -19,14 +19,17 @@
 #include <linux/fs.h>
 #include <linux/slab.h>
 
-
 void* super_block_storage(const struct super_block* sb) {
   return sb->s_fs_info;
 }
 
+
 void* inode_storage(const struct inode* nod) {
   return nod->i_sb->s_fs_info;
 }
+
+// Строковые функции
+
 
 struct qstr alloc_qstr_from_str(const char* str, size_t len) {
   struct qstr r;

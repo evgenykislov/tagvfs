@@ -20,9 +20,6 @@
 #include <linux/fs.h>
 #include <linux/kernel.h>
 
-extern const struct inode_operations tagfs_dir_inode_ops;
-extern const struct file_operations tagfs_dir_file_ops;
-
 /*! Выдаёт уникальный номер ноды для директории.
 \param dirino указатель для получения уникального номера. Не может быть NULL.
 Значение под указателем может быть изменено даже в случае ошибок
@@ -41,7 +38,8 @@ struct inode* fill_lookup_dentry_by_new_directory_inode(struct super_block* sb,
     const struct file_operations* file_ops);
 
 
-/*! Создаёт новый inode для директории и заполняет информацию о нём в owner_de
+/*! Создаёт новый inode для директории и заполняет информацию о нём в owner_de.
+Не предназначено для использования в функциях lookup.
 \param sb указатель на суперблок
 \param owner_de структура dentry, к которой привязать новый созданый нод
 \param dirino номер ноды для директории. Если значение 0 - то генерируется следующий уникальный
@@ -52,9 +50,8 @@ struct inode* fill_dentry_by_new_directory_inode(struct super_block* sb,
     struct dentry* owner_de, size_t dirino,
     const struct inode_operations* inode_ops, const struct file_operations* file_ops);
 
-int tagfs_dir_iterate(struct file* f, struct dir_context* dc);
-
+/*! Отладочный вывод (в kern.log) содержимого dentry
+\param de указатель на выводимуй структуру. Может быть NULL */
 void tagfs_printk_dentry(struct dentry* de);
-
 
 #endif // TAG_DIR_H

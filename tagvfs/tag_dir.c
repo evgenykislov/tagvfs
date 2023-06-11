@@ -14,9 +14,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+#include "tag_dir.h"
+
 #include <linux/kernel.h>
 
-#include "tag_dir.h"
 #include "tag_inode.h"
 #include "tag_storage.h"
 
@@ -36,38 +37,14 @@ bool get_unique_dirino(size_t* dirino) {
 }
 
 
-int tagfs_dir_iterate(struct file* f, struct dir_context* dc) {
-  return 0; // TODO There is no records
-}
-
-int tagfs_dir_open(struct inode *inode, struct file *file) {
-  return 0;
-}
-
-int tagfs_dir_release(struct inode *inode, struct file *file) {
-  return 0;
-}
-
-struct dentry* tagfs_dir_lookup(struct inode* dir, struct dentry *dentry,
-    unsigned int flags) {
-  return NULL;
-}
-
-// TODO REMOVE???
-const struct inode_operations tagfs_dir_inode_ops = {
-  .lookup = tagfs_dir_lookup
-};
-
-
-const struct file_operations tagfs_dir_file_ops = {
-  .open = tagfs_dir_open,
-  .release = tagfs_dir_release,
-  .iterate = tagfs_dir_iterate
-};
-
-
-struct inode* create_directory_inode(struct super_block* sb,
-    struct dentry* owner_de, size_t dirino,
+/*! Создаём новую ноду для директории
+\param sb указатель на суперблок файловой системы
+\param dirino номер ноды для создаваемой директории. Может быть 0 - тогда ноде
+будет назначен уникальный номер
+\param inode_ops операции над нодой директории. Может быть NULL
+\param file_ops файловые операции над директорией. Может быть NULL
+\return указатель на новую ноду или отрицательный код ошибки */
+struct inode* create_directory_inode(struct super_block* sb, size_t dirino,
     const struct inode_operations* inode_ops, const struct file_operations* file_ops) {
   struct inode* nod;
 
@@ -80,7 +57,7 @@ struct inode* create_directory_inode(struct super_block* sb,
   nod = tagfs_create_inode(sb, S_IFDIR | 0777, dirino);
   if (!nod) { return ERR_PTR(-ENOMEM); }
   // У созданной ноды уже установлены некоторые дефалтовые операции. Если нам
-  // не нужно ставить свои то ничего не меняем
+  // не нужно ставить свои, то ничего не меняем
   if (inode_ops) { nod->i_op = inode_ops; }
   if (file_ops) { nod->i_fop = file_ops; }
   return nod;
@@ -92,7 +69,7 @@ struct inode* fill_lookup_dentry_by_new_directory_inode(struct super_block* sb,
     const struct file_operations* file_ops) {
   struct inode* nod;
 
-  nod = create_directory_inode(sb, owner_de, dirino, inode_ops, file_ops);
+  nod = create_directory_inode(sb, dirino, inode_ops, file_ops);
   if (IS_ERR(nod)) { return nod; }
   d_add(owner_de, nod);
   return nod;
@@ -104,7 +81,7 @@ struct inode*  fill_dentry_by_new_directory_inode(struct super_block* sb,
     const struct inode_operations* inode_ops, const struct file_operations* file_ops) {
   struct inode* nod;
 
-  nod = create_directory_inode(sb, owner_de, dirino, inode_ops, file_ops);
+  nod = create_directory_inode(sb, dirino, inode_ops, file_ops);
   if (IS_ERR(nod)) { return nod; }
   d_instantiate(owner_de, nod);
   return nod;
