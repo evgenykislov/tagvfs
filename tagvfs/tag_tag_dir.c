@@ -275,14 +275,14 @@ int tagfs_tag_dir_iterate_tag(struct dir_context* dc, Storage stor,
     fi->last_iterate_tag = tagino;
     // Первый тэг с "прямым" именем
     if (dc->pos == kAfterDotsPos) {
-      if (!get_next_dirino(&dirino)) { res = -ENFILE; goto ft_err; }
+      if (!get_unique_dirino(&dirino)) { res = -ENFILE; goto ft_err; }
       if (!dir_emit(dc, name.name, name.len, dirino, DT_DIR)) { res = -ENOMEM; goto ft_err; }
       ++dc->pos;
     }
 
     // Второй тэг с негативным именем
     if (dc->pos == kAfterDotsPos + 1) {
-      if (!get_next_dirino(&dirino)) { res = -ENFILE; goto ft_err; }
+      if (!get_unique_dirino(&dirino)) { res = -ENFILE; goto ft_err; }
       if (!dir_emit(dc, noname.name, noname.len, dirino, DT_DIR)) { res = -ENOMEM; goto ft_err; }
       ++dc->pos;
     }
@@ -313,7 +313,7 @@ ft_err:
     fi->last_iterate_tag = tagino;
 
     if (tagpos == dc->pos) {
-      if (!get_next_dirino(&dirino)) { res = -ENFILE; goto st_err; }
+      if (!get_unique_dirino(&dirino)) { res = -ENFILE; goto st_err; }
       if (!dir_emit(dc, name.name, name.len, dirino, DT_DIR)) { res = -ENOMEM; goto st_err; }
       ++dc->pos;
     }
@@ -321,7 +321,7 @@ ft_err:
 
     if (tagpos == dc->pos) {
       struct qstr noname = qstr_add_header(name, noprefix); // TODO CHECK noname isn't empty
-      if (!get_next_dirino(&dirino)) { res = -ENFILE; goto st_err; }
+      if (!get_unique_dirino(&dirino)) { res = -ENFILE; goto st_err; }
       if (!dir_emit(dc, noname.name, noname.len, dirino, DT_DIR)) { res = -ENOMEM; goto st_err; }
       ++dc->pos;
     }

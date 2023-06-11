@@ -23,9 +23,11 @@
 extern const struct inode_operations tagfs_dir_inode_ops;
 extern const struct file_operations tagfs_dir_file_ops;
 
-/* ???? */
-bool get_next_dirino(size_t* dirino);
-
+/*! Выдаёт уникальный номер ноды для директории.
+\param dirino указатель для получения уникального номера. Не может быть NULL.
+Значение под указателем может быть изменено даже в случае ошибок
+\return признак успешности выдачи номера */
+bool get_unique_dirino(size_t* dirino);
 
 /*! Добавляет к негативному dentry новый inode для колбэка lookup
 \param sb суперблок

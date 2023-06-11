@@ -21,10 +21,11 @@
 #include "tag_storage.h"
 
 /*! Счётчик ноды для директорий. Всегда растёт. Когда заполнится - директории
-выводится не будет, придётся перезапускать модуль файловой системы */
+выводиться не будут, придётся перезапускать модуль файловой системы */
 atomic_t dirino_counter = ATOMIC_INIT(kFSDirectoriesStartIno);
 
-bool get_next_dirino(size_t* dirino) {
+
+bool get_unique_dirino(size_t* dirino) {
   *dirino = atomic_inc_return(&dirino_counter);
   if (*dirino < kFSDirectoriesStartIno || *dirino > kFSDirectoriesFinishIno) {
     // Выход за допустимый диапазон индексов для директорий
@@ -71,7 +72,7 @@ struct inode* create_directory_inode(struct super_block* sb,
   struct inode* nod;
 
   if (dirino == 0) {
-    if (!get_next_dirino(&dirino)) {
+    if (!get_unique_dirino(&dirino)) {
       return ERR_PTR(-ENFILE);
     }
   }
