@@ -31,6 +31,8 @@
 #include "tag_storage.h"
 #include "tag_tag_dir.h"
 
+// Запретить появление файла управления
+#define DISABLE_CONTROL
 
 const char tagvfs_name[] = "tagvfs";
 
@@ -76,6 +78,8 @@ int tagfs_root_iterate(struct file* f, struct dir_context* dc) {
     if (!bres) { return -ENOMEM; }
     dc->pos += 1;
   }
+
+#ifndef DISABLE_CONTROL
   if (dc->pos == 5) {
     name = tagfs_get_special_name(stor, kFSSpecialNameControl);
     if (name.len == 0) { return -ENOMEM; }
@@ -86,6 +90,7 @@ int tagfs_root_iterate(struct file* f, struct dir_context* dc) {
     }
     dc->pos += 1;
   }
+#endif
 
   return 0;
 }
@@ -137,11 +142,13 @@ struct dentry* tagfs_root_lookup(struct inode* parent_i, struct dentry* de,
       }
       return NULL;
       break;
+#ifndef DISABLE_CONTROL
     case kFSSpecialNameControl:
       inode = tagfs_create_inode(sb, S_IFREG | 0755, kControlIndex);
       d_add(de, inode);
       return NULL;
       break;
+#endif
     default:;
   }
 
