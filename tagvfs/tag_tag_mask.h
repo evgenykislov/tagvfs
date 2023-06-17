@@ -66,10 +66,11 @@ bool tagmask_check_tag(const struct TagMask mask, size_t tag);
 /* ??? */
 size_t tagmask_on_bits_amount(const struct TagMask mask);
 
-/* ???
-
-Ошибки не возвращаются. Еслои бит вне границ, тогда маска не меняется
-*/
+/* Выставляем/Сбрасываем тэговый бит в маске. Никаких ошибок не возвращается.
+Если бит вне границ маски, тогда маска не меняется
+\param mask маска, в которой меняется тэговый бит
+\param tag номер тэга, для которого изменяется состояние
+\state требуемое состояние */
 void tagmask_set_tag(struct TagMask mask, size_t tag, bool state);
 
 
@@ -88,7 +89,8 @@ void tagmask_exclude_mask(struct TagMask result, struct TagMask arg);
 bool tagmask_check_filter(const struct TagMask item, const struct TagMask on_mask,
     const struct TagMask off_mask);
 
-/* ??? */
+/*! Отладочный вывод информации о маске в kern.log
+\param mask выводиимая маска */
 void tagmask_printk(const struct TagMask mask);
 
 #endif // TAG_TAG_MASK_H

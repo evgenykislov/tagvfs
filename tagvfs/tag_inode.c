@@ -65,7 +65,8 @@ struct inode* tagfs_inode_alloc(struct super_block *sb) {
   // Обязательно инициализировать, иначе при размонтировании будет крэш
   inode_init_once(&(d->nod));
 
-  d->info.tag_ino = 0;
+  d->info.tag_ino = (size_t)(-1);
+  d->info.on_tag = true;
   d->info.on_mask = tagmask_empty();
   d->info.off_mask = tagmask_empty();
 

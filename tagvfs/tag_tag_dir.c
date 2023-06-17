@@ -84,6 +84,7 @@ struct dentry* tagfs_tag_dir_lookup(struct inode* dir, struct dentry *de,
 
     iinfo = get_inode_info(inode);
     iinfo->tag_ino = tagino;
+    iinfo->on_tag = !no_tag;
     WARN_ON(!tagmask_is_empty(iinfo->on_mask));
     WARN_ON(!tagmask_is_empty(iinfo->off_mask));
     mask_len = tagfs_get_maximum_tags_amount(stor);
@@ -182,7 +183,10 @@ new_err:
   return 0;
 }
 
-
+/*! Колбэк на операцию по удалению файла для ноды
+\param dir нода директории, в которой что-то удаляется
+\param de dentry на удаляемый элемент
+\return 0 при успешном удалении или отрицательный код ошибки */
 int tagfs_tag_dir_unlink(struct inode* dir, struct dentry* de) {
   struct InodeInfo* dir_info = get_inode_info(dir);
   Storage stor = inode_storage(dir);
@@ -190,13 +194,16 @@ int tagfs_tag_dir_unlink(struct inode* dir, struct dentry* de) {
   struct qstr name = get_null_qstr();
   int res;
   size_t fileino;
-  struct inode* fi = de->d_inode;
+  struct inode* fi = d_inode(de);
+  bool mask_bit;
 
   if (!fi) { return -ENOENT; }
 
   if (fi->i_ino < kFSRealFilesStartIno || fi->i_ino > kFSRealFilesFinishIno) {
-    return -EINVAL;
+    // Удалять в дереве тэгов можно только файлы. Остально - запрещено.
+    return -EPERM;
   }
+
   fileino = fi->i_ino - kFSRealFilesStartIno;
   name = tagfs_get_fname_by_ino(stor, fileino, &mask);
   if (!name.name) {
@@ -205,7 +212,15 @@ int tagfs_tag_dir_unlink(struct inode* dir, struct dentry* de) {
   }
   free_qstr(&name);
 
-  tagmask_set_tag(mask, dir_info->tag_ino, false);
+  // Модифицируем маску файла: удаляем/добавляем соответствующий тэг
+  mask_bit = tagmask_check_tag(mask, dir_info->tag_ino);
+  if (dir_info->on_tag) {
+    if (mask_bit) { tagmask_set_tag(mask, dir_info->tag_ino, false); }
+    else { res = -EINVAL; }
+  } else {
+    if (!mask_bit) { tagmask_set_tag(mask, dir_info->tag_ino, true); }
+    else { res = -EINVAL; }
+  }
   res = tagfs_set_file_mask(stor, fileino, mask);
   tagmask_release(&mask);
   return res;
@@ -231,6 +246,7 @@ int tagfs_tag_dir_mkdir(struct inode* dir,struct dentry* de, umode_t mode) {
 
   new_info = get_inode_info(newnode);
   new_info->tag_ino = tagino;
+  new_info->on_tag = true;
   WARN_ON(!tagmask_is_empty(new_info->on_mask));
   WARN_ON(!tagmask_is_empty(new_info->off_mask));
   mask_len = tagfs_get_maximum_tags_amount(stor);
@@ -394,6 +410,7 @@ int tagfs_tag_dir_iterate_file(struct dir_context* dc, Storage stor,
 
     fi->last_iterate_pos = file_pos;
     fi->last_iterate_file = file_ino;
+    free_qstr(&name);
   }
 }
 

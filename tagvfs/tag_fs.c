@@ -133,7 +133,8 @@ struct dentry* tagfs_root_lookup(struct inode* parent_i, struct dentry* de,
             &tagfs_tag_dir_inode_ops, &tagfs_tag_dir_file_ops);
         if (!inode) { return ERR_PTR(-ENOENT); }
         iinfo = get_inode_info(inode);
-        iinfo->tag_ino = 0;
+        iinfo->tag_ino = (size_t)(-1);
+        iinfo->on_tag = true;
         WARN_ON(!tagmask_is_empty(iinfo->on_mask));
         WARN_ON(!tagmask_is_empty(iinfo->off_mask));
         mask_len = tagfs_get_maximum_tags_amount(stor);
