@@ -28,8 +28,6 @@ void* inode_storage(const struct inode* nod) {
   return nod->i_sb->s_fs_info;
 }
 
-// Строковые функции
-
 
 struct qstr alloc_qstr_from_str(const char* str, size_t len) {
   struct qstr r;
