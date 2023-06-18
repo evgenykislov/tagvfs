@@ -105,7 +105,8 @@ struct dentry* tagfs_tag_dir_lookup(struct inode* dir, struct dentry *de,
       dir_info->off_mask);
   tagmask_release(&mask);
   if (!mask_suitable || fileino == kNotFoundIno) {
-    d_add(de, NULL);
+    // Workaround of negative dentry cache: invalidate dentry
+//     d_add(de, NULL);
     return NULL;
   }
 
@@ -223,6 +224,10 @@ int tagfs_tag_dir_unlink(struct inode* dir, struct dentry* de) {
   }
   res = tagfs_set_file_mask(stor, fileino, mask);
   tagmask_release(&mask);
+
+  // Workaround of negative dentry cache: invalidate dentry
+  d_invalidate(de);
+
   return res;
 }
 
