@@ -25,6 +25,8 @@
 #include "tag_inode.h"
 #include "tag_storage.h"
 
+extern const struct dentry_operations tagfs_tag_dir_negative_dentry_ops;
+
 
 struct FileInfo {
   // Маркеры для итерации по директории
@@ -105,6 +107,7 @@ struct dentry* tagfs_tag_dir_lookup(struct inode* dir, struct dentry *de,
       dir_info->off_mask);
   tagmask_release(&mask);
   if (!mask_suitable || fileino == kNotFoundIno) {
+    d_set_d_op(de, &tagfs_tag_dir_negative_dentry_ops);
     d_add(de, NULL);
     return NULL;
   }
@@ -223,6 +226,9 @@ int tagfs_tag_dir_unlink(struct inode* dir, struct dentry* de) {
   }
   res = tagfs_set_file_mask(stor, fileino, mask);
   tagmask_release(&mask);
+
+  d_set_d_op(de, &tagfs_tag_dir_negative_dentry_ops);
+
   return res;
 }
 
@@ -483,7 +489,9 @@ loff_t tagfs_tag_dir_llseek(struct file* f, loff_t offset, int whence) {
 }
 
 
-
+int tagfs_tag_dir_revalidate(struct dentry* de, unsigned int flags) {
+  return 0;
+}
 
 const struct inode_operations tagfs_tag_dir_inode_ops = {
   .lookup = tagfs_tag_dir_lookup,
@@ -498,4 +506,8 @@ const struct file_operations tagfs_tag_dir_file_ops = {
   .llseek = tagfs_tag_dir_llseek,
   .read = generic_read_dir,
   .iterate_shared = tagfs_tag_dir_iterate
+};
+
+const struct dentry_operations tagfs_tag_dir_negative_dentry_ops = {
+  .d_revalidate = tagfs_tag_dir_revalidate
 };
