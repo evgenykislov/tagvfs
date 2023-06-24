@@ -207,6 +207,11 @@ int tagfs_tag_dir_unlink(struct inode* dir, struct dentry* de) {
     return -EPERM;
   }
 
+  // TODO OPTION Add and process 'rminnotag'
+  if (!dir_info->on_tag) {
+    return -EPERM;
+  }
+
   fileino = fi->i_ino - kFSRealFilesStartIno;
   name = tagfs_get_fname_by_ino(stor, fileino, &mask);
   if (!name.name) {
@@ -261,6 +266,11 @@ int tagfs_tag_dir_mkdir(struct inode* dir,struct dentry* de, umode_t mode) {
   tagmask_or_mask(new_info->on_mask, dir_info->on_mask);
   tagmask_or_mask(new_info->off_mask, dir_info->off_mask);
   return 0;
+}
+
+
+int tagfs_tag_dir_rmdir(struct inode* dir,struct dentry* de) {
+  return -EPERM;
 }
 
 
@@ -497,7 +507,8 @@ const struct inode_operations tagfs_tag_dir_inode_ops = {
   .lookup = tagfs_tag_dir_lookup,
   .symlink = tagfs_tag_dir_symlink,
   .unlink = tagfs_tag_dir_unlink,
-  .mkdir = tagfs_tag_dir_mkdir
+  .mkdir = tagfs_tag_dir_mkdir,
+  .rmdir = tagfs_tag_dir_rmdir
 };
 
 const struct file_operations tagfs_tag_dir_file_ops = {
