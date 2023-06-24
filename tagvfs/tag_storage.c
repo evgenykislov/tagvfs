@@ -218,9 +218,10 @@ struct qstr fname4 = QSTR_INIT(NULL, 0);
 struct qstr fpath4 = QSTR_INIT(NULL, 0);
 
 
-struct qstr kSpecNameAllFiles = QSTR_INIT("all-files", 9);
+struct qstr kSpecNameOnlyFiles = QSTR_INIT("only-files", 9);
 struct qstr kSpecNameFilesWOTags = QSTR_INIT("files-wo-tags", 13);
 struct qstr kSpecNameTags = QSTR_INIT("tags", 4);
+struct qstr kSpecNameOnlyTags = QSTR_INIT("only-tags", 9);
 struct qstr kSpecNameControl = QSTR_INIT("control", 7);
 
 
@@ -986,9 +987,10 @@ struct qstr tagfs_get_fname_by_ino(Storage stor, size_t ino,
 struct qstr tagfs_get_special_name(Storage stor, enum FSSpecialName name) {
   struct qstr fixn = kNullQstr;
   switch (name) {
-    case kFSSpecialNameAllFiles:    fixn = kSpecNameAllFiles; break;
+    case kFSSpecialNameOnlyFiles:   fixn = kSpecNameOnlyFiles; break;
     case kFSSpecialNameFilesWOTags: fixn = kSpecNameFilesWOTags; break;
     case kFSSpecialNameTags:        fixn = kSpecNameTags; break;
+    case kFSSpecialNameOnlyTags:    fixn = kSpecNameOnlyTags; break;
     case kFSSpecialNameControl:     fixn = kSpecNameControl; break;
     case kFSSpecialNameUndefined:   fixn = kNullQstr; break;
   }
@@ -999,9 +1001,10 @@ struct qstr tagfs_get_special_name(Storage stor, enum FSSpecialName name) {
 }
 
 enum FSSpecialName tagfs_get_special_type(Storage stor, struct qstr name) {
-  if (compare_qstr(name, kSpecNameAllFiles) == 0) { return kFSSpecialNameAllFiles; }
+  if (compare_qstr(name, kSpecNameOnlyFiles) == 0) { return kFSSpecialNameOnlyFiles; }
   if (compare_qstr(name, kSpecNameFilesWOTags) == 0) { return kFSSpecialNameFilesWOTags; }
   if (compare_qstr(name, kSpecNameTags) == 0) { return kFSSpecialNameTags; }
+  if (compare_qstr(name, kSpecNameOnlyTags) == 0) { return kFSSpecialNameOnlyTags; }
   if (compare_qstr(name, kSpecNameControl) == 0) { return kFSSpecialNameControl; }
   return kFSSpecialNameUndefined;
 }

@@ -37,10 +37,11 @@
 const char tagvfs_name[] = "tagvfs";
 
 static const size_t kRootIndex = kFSSpecialNameStartIno + 1;
-static const size_t kAllFilesIndex = kFSSpecialNameStartIno + 2;
+static const size_t kOnlyFilesIndex = kFSSpecialNameStartIno + 2;
 static const size_t kFilesWOTagsIndex = kFSSpecialNameStartIno + 3;
 static const size_t kTagsIndex = kFSSpecialNameStartIno + 4;
-static const size_t kControlIndex = kFSSpecialNameStartIno + 5;
+static const size_t kOnlyTagsIndex = kFSSpecialNameStartIno + 5;
+static const size_t kControlIndex = kFSSpecialNameStartIno + 6;
 
 const unsigned long kMagicTag = 0x34562343; //!< Магическое число для идентификации файловой системы
 
@@ -55,9 +56,9 @@ int tagfs_root_iterate(struct file* f, struct dir_context* dc) {
 
   // Special files
   if (dc->pos == 2) {
-    name = tagfs_get_special_name(stor, kFSSpecialNameAllFiles);
+    name = tagfs_get_special_name(stor, kFSSpecialNameOnlyFiles);
     if (name.len == 0) { return -ENOMEM; }
-    bres = dir_emit(dc, name.name, name.len, kAllFilesIndex, DT_DIR);
+    bres = dir_emit(dc, name.name, name.len, kOnlyFilesIndex, DT_DIR);
     free_qstr(&name);
     if (!bres) { return -ENOMEM; }
     dc->pos += 1;
@@ -78,9 +79,19 @@ int tagfs_root_iterate(struct file* f, struct dir_context* dc) {
     if (!bres) { return -ENOMEM; }
     dc->pos += 1;
   }
+  if (dc->pos == 5) {
+    name = tagfs_get_special_name(stor, kFSSpecialNameOnlyTags);
+    WARN_ON(name.len == 0);
+    if (name.len == 0) { return -ENOMEM; }
+    bres = dir_emit(dc, name.name, name.len, kOnlyTagsIndex, DT_DIR);
+    free_qstr(&name);
+    if (!bres) { return -ENOMEM; }
+    dc->pos += 1;
+  }
+
 
 #ifndef DISABLE_CONTROL
-  if (dc->pos == 5) {
+  if (dc->pos == 6) {
     name = tagfs_get_special_name(stor, kFSSpecialNameControl);
     if (name.len == 0) { return -ENOMEM; }
     bres = dir_emit(dc, name.name, name.len, kControlIndex, DT_REG);
@@ -113,8 +124,8 @@ struct dentry* tagfs_root_lookup(struct inode* parent_i, struct dentry* de,
 
   nt = tagfs_get_special_type(stor, de->d_name);
   switch (nt) {
-    case kFSSpecialNameAllFiles:
-      if (!fill_lookup_dentry_by_new_directory_inode(sb, de, kAllFilesIndex,
+    case kFSSpecialNameOnlyFiles:
+      if (!fill_lookup_dentry_by_new_directory_inode(sb, de, kOnlyFilesIndex,
           &tagfs_allfiles_dir_inode_ops,
           &tagfs_allfiles_dir_file_ops)) { return ERR_PTR(-ENOENT); }
       return NULL;
@@ -143,6 +154,15 @@ struct dentry* tagfs_root_lookup(struct inode* parent_i, struct dentry* de,
       }
       return NULL;
       break;
+    case kFSSpecialNameOnlyTags:
+      if (!fill_lookup_dentry_by_new_directory_inode(sb, de, kOnlyTagsIndex,
+          NULL, NULL)) {
+        return ERR_PTR(-ENOENT);
+      }
+      return NULL;
+      break;
+
+
 #ifndef DISABLE_CONTROL
     case kFSSpecialNameControl:
       inode = tagfs_create_inode(sb, S_IFREG | 0755, kControlIndex);

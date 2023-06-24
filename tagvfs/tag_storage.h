@@ -32,10 +32,11 @@
 
 enum FSSpecialName {
   kFSSpecialNameUndefined = 0,
-  kFSSpecialNameAllFiles = 1,
+  kFSSpecialNameOnlyFiles = 1,
   kFSSpecialNameFilesWOTags = 2,
   kFSSpecialNameTags = 3,
-  kFSSpecialNameControl = 4
+  kFSSpecialNameOnlyTags = 4,
+  kFSSpecialNameControl = 5
 };
 
 extern const size_t kNotFoundIno;
