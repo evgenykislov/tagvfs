@@ -21,6 +21,9 @@
 
 #define kModuleLogName "tagvfs: "
 
+//! Позиция после точечных директорий для файловой итерации
+#define kPosAfterDots (2)
+
 // Функции-хелперы
 // ---------------
 
@@ -97,5 +100,9 @@ struct qstr qstr_trim_header_if_exist(const struct qstr source, const struct qst
 \param header заголовок для добавления
 \return строка с заголовком или пустая строка в случае ошибки */
 struct qstr qstr_add_header(const struct qstr source, const struct qstr header);
+
+/*! Общая функция поиска по директории */
+loff_t tagfs_common_dir_llseek(struct file* f, loff_t offset, int whence);
+
 
 #endif // COMMON_H

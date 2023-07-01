@@ -28,6 +28,7 @@
 #include "tag_dir.h"
 #include "tag_file.h"
 #include "tag_inode.h"
+#include "tag_onlytags_dir.h"
 #include "tag_storage.h"
 #include "tag_tag_dir.h"
 
@@ -156,7 +157,7 @@ struct dentry* tagfs_root_lookup(struct inode* parent_i, struct dentry* de,
       break;
     case kFSSpecialNameOnlyTags:
       if (!fill_lookup_dentry_by_new_directory_inode(sb, de, kOnlyTagsIndex,
-          NULL, NULL)) {
+          &tagfs_onlytags_dir_inode_ops, &tagfs_onlytags_dir_file_ops)) {
         return ERR_PTR(-ENOENT);
       }
       return NULL;

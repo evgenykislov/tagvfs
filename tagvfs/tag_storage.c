@@ -87,6 +87,11 @@ struct StorageRaw {
   struct file* storage_file;
 };
 
+const u16 kTagFlagFree = 0;
+const u16 kTagFlagActive = 1;
+const u16 kTagFlagBlocked = 2;
+
+
 extern void CalculateActiveTagAmount(struct StorageRaw* sr);
 
 /*! Открывает файл-хранилище и инициализирует экземпляр stor
@@ -824,6 +829,65 @@ err:
   return res;
 }
 
+/*! ??? */
+int TagFlagUpdate(struct StorageRaw* sr, size_t tagino, u16 expect_state,
+    u16 new_state) {
+  struct TagHeader th;
+  loff_t basepos, pos;
+  int res = 0;
+
+
+// LOCK-LOCK
+
+  if (tagino >= sr->tag_filled_records) { return -EFAULT; }
+  pos = basepos = sr->tag_table_pos + sr->tag_record_size * tagino;
+  if (kernel_read(sr->storage_file, &th, sizeof(th), &pos) != sizeof(th)) {
+    res = -EFAULT;
+    goto err;
+  }
+
+  if (th.tag_flags != expect_state) {
+    res = -EINVAL;
+    goto err;
+  }
+
+  th.tag_flags = new_state;
+  pos = basepos;
+  if (kernel_write(sr->storage_file, &th, sizeof(th), &pos) != sizeof(th)) {
+    res = -EFAULT;
+    goto err;
+  }
+
+err:
+  return res;
+}
+
+
+int RemoveTagFromAllFiles(struct StorageRaw* sr, size_t tagino) {
+  size_t i;
+  int res = 0;
+
+  for (i = 0; i < sr->fileblock_amount; ++i) {
+    struct TagMask mask = tagmask_empty();
+
+    // TODO LOCK-LOCK
+
+    if (!CheckFileIsActive(sr, i)) { continue; }
+    if (GetFileInfo(sr, i, &mask, NULL, NULL)) { continue; }
+
+    if (tagmask_check_tag(mask, tagino)) {
+      tagmask_set_tag(mask, tagino, false);
+      if (UpdateDataIntoBlockChain(sr, i, mask.data, mask.byte_len,
+          sizeof(struct FileHeader), 0) != mask.byte_len) {
+        res = -EFAULT;
+      }
+    }
+    tagmask_release(&mask);
+  }
+
+  return res;
+}
+
 
 // TODO CHECK USELESS
 /* Возвращает ссылку для файла по его номеру (ino). Если файла с таким номером
@@ -1185,4 +1249,29 @@ const struct qstr tagfs_get_no_prefix(Storage stor) {
   BUG_ON(!stor);
   sr = (struct StorageRaw*)(stor);
   return sr->no_prefix;
+}
+
+
+int tagfs_del_tag(Storage stor, const struct qstr tag) {
+  struct StorageRaw* sr;
+  size_t tino;
+  int tres;
+  int fres;
+
+  WARN_ON(!stor);
+  if (!stor) { return -EINVAL; }
+  sr = (struct StorageRaw*)(stor);
+  tino = tagfs_get_tagino_by_name(stor, tag);
+  if (tino == kNotFoundIno) { return -ENOENT; }
+
+  tres = TagFlagUpdate(sr, tino, kTagFlagActive, kTagFlagBlocked);
+  if (tres) { return tres; }
+
+  // Удалим упоминание о тэге во всех файлах
+  fres = RemoveTagFromAllFiles(sr, tino);
+
+  tres = TagFlagUpdate(sr, tino, kTagFlagBlocked, kTagFlagFree);
+  if (tres) { return tres; }
+
+  return fres;
 }

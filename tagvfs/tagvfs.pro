@@ -11,6 +11,7 @@ SOURCES += \
   tag_fs.c \
   tag_inode.c \
   tag_module.c \
+  tag_onlytags_dir.c \
   tag_storage.c \
   tag_tag_dir.c \
   tag_tag_mask.c
@@ -23,6 +24,7 @@ HEADERS += \
   tag_file.h \
   tag_fs.h \
   tag_inode.h \
+  tag_onlytags_dir.h \
   tag_storage.h \
   tag_tag_dir.h \
   tag_tag_mask.h

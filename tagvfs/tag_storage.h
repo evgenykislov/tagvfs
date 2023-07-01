@@ -61,6 +61,7 @@ void tagfs_sync_storage(Storage stor);
 /*! Возвращает название тэга по индексу/tagino. Если индекс невалидный или тэг удалён, то возвращается строка пустой длины
 \param index индекс тэга, по которому запрашивается информация
 \return строка с названием тэга. Строка выделяется на памяти, необходимо её удалить */
+// TODO переименовать. Убрать индекс, сделать ino
 struct qstr tagfs_get_tag_name_by_index(Storage stor, size_t index);
 
 /* ??? */
@@ -115,7 +116,7 @@ enum FSSpecialName tagfs_get_special_type(Storage stor, const struct qstr name);
 соответствует маске mask. Номера начинаются с нуля, номера уникальны, следующий поиск можно начинать с ранее найденного номера + 1.
 \param start_ino начальный номер, с которого начинать поиск
 \param mask требуемая маска для файла
-\param found_ino найденный номер. Может быть равен start_ino или быть больше.
+\param found_ino найденный номер. Может быть равен ??? start_ino или быть больше.
 Если  файл не найден, то возвращается значение kNotFoundIno. Параметр не может
 быть NULL
 \param name найденное имя файла. Если файл не найден, то возвращается пустая
@@ -145,7 +146,7 @@ size_t tagfs_get_fileino_by_name(Storage stor, const struct qstr name,
 struct qstr tagfs_get_file_link(Storage stor, size_t ino);
 
 
-/* Обновляем маску на существующий файл. Так как размер маски задан на этапе
+/*! Обновляем маску на существующий файл. Так как размер маски задан на этапе
 формирования файловой системы и фиксирован, то размер файловой записи не меняется
 \param fileino номер файла
 \param mask новая маска
@@ -183,6 +184,9 @@ size_t tagfs_get_active_tags_amount(Storage stor);
 
 /* ??? */
 const struct qstr tagfs_get_no_prefix(Storage stor);
+
+/*! ??? */
+int tagfs_del_tag(Storage stor, const struct qstr tag);
 
 
 #endif // TAG_STORAGE_H

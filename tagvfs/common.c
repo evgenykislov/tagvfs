@@ -121,3 +121,22 @@ struct qstr qstr_trim_header_if_exist(const struct qstr source, const struct qst
 struct qstr qstr_add_header(const struct qstr source, const struct qstr header) {
   return alloc_qstr_from_2str(header.name, header.len, source.name, source.len);
 }
+
+
+loff_t tagfs_common_dir_llseek(struct file* f, loff_t offset, int whence) {
+  switch (whence) {
+    case 0: // absolute offset
+      f->f_pos = offset;
+      break;
+    case 1: // relative offset
+      f->f_pos += offset;
+      break;
+    default:
+      f->f_pos = -1;
+  }
+
+  if (f->f_pos >= 0) {
+    return f->f_pos;
+  }
+  return -EINVAL;
+}
