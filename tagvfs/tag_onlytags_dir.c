@@ -184,7 +184,15 @@ int tagfs_onlytags_dir_unlink(struct inode* dirnod, struct dentry* de) {
 
 
 int tagfs_onlytags_dir_mkdir(struct inode* dir,struct dentry* de, umode_t mode) {
-  return tagfs_add_new_tag(inode_storage(dir), de->d_name, NULL); // TODO CHECK EXISTANCE
+  struct inode* nn;
+  int res;
+
+  res = tagfs_add_new_tag(inode_storage(dir), de->d_name, NULL); // TODO CHECK EXISTANCE
+  if (res) { return res; }
+
+  nn = fill_dentry_by_new_directory_inode(dir->i_sb, de, 0, NULL, NULL);
+  if (IS_ERR(nn)) { return PTR_ERR(nn); }
+  return 0;
 }
 
 
