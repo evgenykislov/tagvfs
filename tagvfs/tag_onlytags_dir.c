@@ -33,6 +33,9 @@ struct dir_data {
 };
 
 
+extern const struct dentry_operations tagfs_onlytags_dir_negative_dentry_ops;
+
+
 int emit_onlytags_dir_byname(struct dir_context* dc, const struct qstr name) {
   size_t dirino;
 
@@ -168,6 +171,7 @@ struct dentry* tagfs_onlytags_dir_lookup(struct inode* dir, struct dentry *de,
   stor = super_block_storage(sb);
   ino = tagfs_get_tagino_by_name(stor, de->d_name);
   if (ino == kNotFoundIno) {
+    d_set_d_op(de, &tagfs_onlytags_dir_negative_dentry_ops); // TODO CHECK RESULT
     d_add(de, NULL);
     return NULL;
   }
@@ -175,11 +179,6 @@ struct dentry* tagfs_onlytags_dir_lookup(struct inode* dir, struct dentry *de,
   inode = fill_lookup_dentry_by_new_directory_inode(sb, de, 0, NULL, NULL);
   if (!inode) { return ERR_PTR(-ENOMEM); }
   return NULL;
-}
-
-
-int tagfs_onlytags_dir_unlink(struct inode* dirnod, struct dentry* de) {
-  return tagfs_del_tag(inode_storage(dirnod), de->d_name);
 }
 
 
@@ -197,13 +196,20 @@ int tagfs_onlytags_dir_mkdir(struct inode* dir,struct dentry* de, umode_t mode) 
 
 
 int tagfs_onlytags_dir_rmdir(struct inode* dir,struct dentry* de) {
-  return tagfs_del_tag(inode_storage(dir), de->d_name); // TODO CHECK EXISTANCE
+  int res = tagfs_del_tag(inode_storage(dir), de->d_name); // TODO CHECK EXISTANCE
+  d_set_d_op(de, &tagfs_onlytags_dir_negative_dentry_ops); // TODO CHECK RESULT
+  return res;
+}
+
+
+int tagfs_onlytags_dir_revalidate(struct dentry* de, unsigned int flags) {
+  return 0;
 }
 
 
 const struct inode_operations tagfs_onlytags_dir_inode_ops = {
   .lookup = tagfs_onlytags_dir_lookup,
-  .unlink = tagfs_onlytags_dir_unlink,
+  .unlink = tagfs_onlytags_dir_rmdir,
   .mkdir = tagfs_onlytags_dir_mkdir,
   .rmdir = tagfs_onlytags_dir_rmdir
 };
@@ -215,4 +221,8 @@ const struct file_operations tagfs_onlytags_dir_file_ops = {
   .llseek = tagfs_common_dir_llseek,
   .read = generic_read_dir,
   .iterate_shared = tagfs_onlytags_dir_iterate
+};
+
+const struct dentry_operations tagfs_onlytags_dir_negative_dentry_ops = {
+  .d_revalidate = tagfs_onlytags_dir_revalidate
 };

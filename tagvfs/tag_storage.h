@@ -169,7 +169,7 @@ int tagfs_del_file(Storage stor, const struct qstr file);
 
 /*! Добавить новый тэг.
 \param tag_name имя тэга
-????
+\param tagino указатель на получаемый номер (ino) тэга. Может быть NULL
 \return 0 - всё хорошо, или отрицательный код ошибки */
 int tagfs_add_new_tag(Storage stor, const struct qstr tag_name, size_t* tagino);
 
