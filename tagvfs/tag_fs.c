@@ -34,6 +34,8 @@
 
 // Запретить появление файла управления
 #define DISABLE_CONTROL
+// Запретить папку файлов без тэгов
+#define DISABLE_FILES_WO_TAGS_DIR
 
 const char tagvfs_name[] = "tagvfs";
 
@@ -65,14 +67,6 @@ int tagfs_root_iterate(struct file* f, struct dir_context* dc) {
     dc->pos += 1;
   }
   if (dc->pos == 3) {
-    name = tagfs_get_special_name(stor, kFSSpecialNameFilesWOTags);
-    if (name.len == 0) { return -ENOMEM; }
-    bres = dir_emit(dc, name.name, name.len, kFilesWOTagsIndex, DT_DIR);
-    free_qstr(&name);
-    if (!bres) { return -ENOMEM; }
-    dc->pos += 1;
-  }
-  if (dc->pos == 4) {
     name = tagfs_get_special_name(stor, kFSSpecialNameTags);
     if (name.len == 0) { return -ENOMEM; }
     bres = dir_emit(dc, name.name, name.len, kTagsIndex, DT_DIR);
@@ -80,7 +74,7 @@ int tagfs_root_iterate(struct file* f, struct dir_context* dc) {
     if (!bres) { return -ENOMEM; }
     dc->pos += 1;
   }
-  if (dc->pos == 5) {
+  if (dc->pos == 4) {
     name = tagfs_get_special_name(stor, kFSSpecialNameOnlyTags);
     WARN_ON(name.len == 0);
     if (name.len == 0) { return -ENOMEM; }
@@ -92,7 +86,7 @@ int tagfs_root_iterate(struct file* f, struct dir_context* dc) {
 
 
 #ifndef DISABLE_CONTROL
-  if (dc->pos == 6) {
+  if (dc->pos == 5) {
     name = tagfs_get_special_name(stor, kFSSpecialNameControl);
     if (name.len == 0) { return -ENOMEM; }
     bres = dir_emit(dc, name.name, name.len, kControlIndex, DT_REG);
@@ -104,8 +98,20 @@ int tagfs_root_iterate(struct file* f, struct dir_context* dc) {
   }
 #endif
 
+#ifndef DISABLE_FILES_WO_TAGS_DIR
+  if (dc->pos == 6) {
+    name = tagfs_get_special_name(stor, kFSSpecialNameFilesWOTags);
+    if (name.len == 0) { return -ENOMEM; }
+    bres = dir_emit(dc, name.name, name.len, kFilesWOTagsIndex, DT_DIR);
+    free_qstr(&name);
+    if (!bres) { return -ENOMEM; }
+    dc->pos += 1;
+  }
+#endif
+
   return 0;
 }
+
 
 int tagfs_root_open(struct inode *inode, struct file *file) {
   return 0;
@@ -129,11 +135,6 @@ struct dentry* tagfs_root_lookup(struct inode* parent_i, struct dentry* de,
       if (!fill_lookup_dentry_by_new_directory_inode(sb, de, kOnlyFilesIndex,
           &tagfs_allfiles_dir_inode_ops,
           &tagfs_allfiles_dir_file_ops)) { return ERR_PTR(-ENOENT); }
-      return NULL;
-      break;
-    case kFSSpecialNameFilesWOTags:
-      if (!fill_lookup_dentry_by_new_directory_inode(sb, de, kFilesWOTagsIndex,
-          NULL, NULL)) { return ERR_PTR(-ENOENT); }
       return NULL;
       break;
     case kFSSpecialNameTags:
@@ -171,6 +172,15 @@ struct dentry* tagfs_root_lookup(struct inode* parent_i, struct dentry* de,
       return NULL;
       break;
 #endif
+
+#ifndef DISABLE_FILES_WO_TAGS_DIR
+    case kFSSpecialNameFilesWOTags:
+      if (!fill_lookup_dentry_by_new_directory_inode(sb, de, kFilesWOTagsIndex,
+          NULL, NULL)) { return ERR_PTR(-ENOENT); }
+      return NULL;
+      break;
+#endif
+
     default:;
   }
 
