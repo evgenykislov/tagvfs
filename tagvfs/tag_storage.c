@@ -237,7 +237,7 @@ ex:
 }
 
 
-struct qstr kSpecNameOnlyFiles = QSTR_INIT("only-files", 9);
+struct qstr kSpecNameOnlyFiles = QSTR_INIT("only-files", 10);
 struct qstr kSpecNameFilesWOTags = QSTR_INIT("files-wo-tags", 13);
 struct qstr kSpecNameTags = QSTR_INIT("tags", 4);
 struct qstr kSpecNameOnlyTags = QSTR_INIT("only-tags", 9);
