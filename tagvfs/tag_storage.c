@@ -1177,7 +1177,8 @@ size_t tagfs_get_fileino_by_name(Storage stor, const struct qstr name,
   struct StorageRaw* sr;
   size_t i;
 
-  if (!stor) { return kNotFoundIno; }
+  WARN_ON(!stor);
+  if (mask) { WARN_ON(!tagmask_is_empty(*mask)); }
   sr = (struct StorageRaw*)(stor);
   for (i = 0; i < sr->fileblock_amount; ++i) {
     struct qstr res;
@@ -1190,6 +1191,7 @@ size_t tagfs_get_fileino_by_name(Storage stor, const struct qstr name,
     if (cmp == 0) {
       return i;
     }
+    if (mask) { tagmask_release(mask); }
   }
   return kNotFoundIno;
 }

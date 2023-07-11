@@ -129,15 +129,17 @@ int tagfs_tag_dir_symlink(struct inode* dir, struct dentry* de, const char* name
   size_t ino;
   Storage stor = inode_storage(dir);
   struct InodeInfo* dir_info = get_inode_info(dir);
-  size_t exist_ino;
   struct TagMask mask;
   int res = 0;
 
-  exist_ino = tagfs_get_fileino_by_name(stor, de->d_name, &mask);
-  if (exist_ino != kNotFoundIno) {
+  // Ищем либо существующий файл, либо создаём новый
+  // По результату поисков/созданий должен получиться номер файла ino и
+  // исходная маска mask (для нового файла она заполнена нулями)
+  ino = tagfs_get_fileino_by_name(stor, de->d_name, &mask);
+  if (ino != kNotFoundIno) {
     struct qstr target = get_null_qstr();
     struct qstr income = alloc_qstr_from_str(name, strlen(name)); // TODO PERFORMANCE. REMOVE allocation
-    target = tagfs_get_file_link(stor, exist_ino);
+    target = tagfs_get_file_link(stor, ino);
     if (!income.name) {
       res = -ENOMEM;
       goto exist_err;
@@ -150,39 +152,35 @@ int tagfs_tag_dir_symlink(struct inode* dir, struct dentry* de, const char* name
       goto exist_err;
     }
 
-    // Это либо копирование нашей же ссылки из папки в папку, либо создание ссылки
-    // на тот же самый файл. В любом случае операцию делаем и двигаем маску тэгов.
-    tagmask_or_mask(mask, dir_info->on_mask);
-    tagmask_exclude_mask(mask, dir_info->off_mask);
-    res = tagfs_set_file_mask(stor, exist_ino, mask);
-    tagmask_release(&mask);
-    WARN_ON(de->d_inode);
-    newnode = tagfs_create_inode(dir->i_sb, S_IFLNK | 0777, exist_ino + kFSRealFilesStartIno);
-    if (!newnode) {
-      res = -ENOMEM;
-      goto exist_err;
-    }
-    d_instantiate(de, newnode);
     // -------
 exist_err:
     free_qstr(&income);
     free_qstr(&target);
-    tagmask_release(&mask);
-    return res;
+
+    if (res) { return res; }
+  } else {
+    // Создаём новый файл
+    ino = tagfs_add_new_file(stor, name, de->d_name);
+    if (ino == kNotFoundIno) { return -EFAULT; }
+    mask = tagmask_init_zero(tagfs_get_maximum_tags_amount(stor));
+    if (tagmask_is_empty(mask)) { return -ENOMEM; }
   }
 
-  // Создаём новый файл
-  ino = tagfs_add_new_file(stor, name, de->d_name);
+  // Создадим ноду, пропишем маски и операции
+  WARN_ON(tagmask_is_empty(mask));
+  WARN_ON(ino == kNotFoundIno);
+  tagmask_or_mask(mask, dir_info->on_mask);
+  tagmask_exclude_mask(mask, dir_info->off_mask);
+  res = tagfs_set_file_mask(stor, ino, mask);
+  tagmask_release(&mask);
+  if (res) { return res; }
+
+  WARN_ON(de->d_inode);
   newnode = tagfs_create_inode(dir->i_sb, S_IFLNK | 0777, ino + kFSRealFilesStartIno);
-  if (!newnode) {
-    res = -ENOMEM;
-    goto new_err;
-  }
+  if (!newnode) { return -ENOMEM; }
+
   tagfs_set_linkfile_operations_for_inode(newnode);
   d_instantiate(de, newnode);
-  // ---------------
-new_err:
-  tagmask_release(&mask);
   return 0;
 }
 
