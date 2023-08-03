@@ -17,8 +17,10 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 
-
 #include "tag_fs.h"
+
+#define TAGVFS_AUTHOR "Evgeny Kislov <dev@evgenykislov.com>"
+#define TAGVFS_DESCRIPTION "VFS module to organize files by tags"
 
 static int tagvfs_init(void) {
   int res = init_fs();
@@ -39,3 +41,5 @@ module_init(tagvfs_init);
 module_exit(tagvfs_exit);
 
 MODULE_LICENSE("GPL");
+MODULE_AUTHOR(TAGVFS_AUTHOR);
+MODULE_DESCRIPTION(TAGVFS_DESCRIPTION);
