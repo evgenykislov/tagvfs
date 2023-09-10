@@ -1,0 +1,59 @@
+#!/bin/bash
+
+if [[ ${TESTDIR} == "" ]]; then
+  echo ERROR: WRONG CONTEXT
+  exit 1
+fi
+
+echo -----
+echo "COPY: simple copy test"
+
+pushd ${TESTDIR} > /dev/null
+
+TPATH=$(pwd)
+RPATH="${TPATH}/copy"
+
+if [[ -f "copy.tag" ]]; then
+  rm -f copy.tag
+fi
+
+if [[ -d "copy" ]]; then
+  rm -dfr copy
+fi
+
+touch copy_001
+touch copy_002
+
+mkdir copy
+
+sudo mount -t tagvfs $(pwd)/copy.tag $(pwd)/copy/
+
+TAGDIR=${RPATH}/tags
+ln -s --target-directory="${TAGDIR}" "${TPATH}/copy_001"
+ln -s --target-directory="${TAGDIR}" "${TPATH}/copy_002"
+
+if ! [[ -L "${TAGDIR}/copy_001" ]]; then
+  echo "ERROR: COPY: file copy_001 doesn't exist"
+  exit 1
+fi
+
+if ! [[ "$(readlink -f "${TAGDIR}/copy_001")" == "${TPATH}/copy_001" ]] ; then
+  echo "ERROR: COPY: Wrong target for copy_001"
+  exit 1
+fi
+
+if ! [[ -L "${TAGDIR}/copy_002" ]]; then
+  echo "ERROR: COPY: file copy_002 doesn't exist"
+  exit 1
+fi
+
+if ! [[ "$(readlink -f "${TAGDIR}/copy_002")" == "${TPATH}/copy_002" ]] ; then
+  echo "ERROR: COPY: Wrong target for copy_002"
+  exit 1
+fi
+
+echo "--- OK: COPY ---"
+
+sudo umount $(pwd)/copy/
+
+popd > /dev/null
