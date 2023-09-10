@@ -76,14 +76,15 @@ struct StorageRaw {
 
   u64 fileblock_table_pos;
   u16 fileblock_size;
-  u64 fileblock_amount;
+  u64 fileblock_amount; // Переменная лочится fileblock_amount_lock
 
-  size_t min_fileblock_for_seek_empty; // Номер блока, с которого можно начинать поиск свободного блока (для ускорения файловых операций)
+  size_t min_fileblock_for_seek_empty; // Номер блока, с которого можно начинать поиск свободного блока (для ускорения файловых операций)  TODO LOCK???
   u16 last_added_tag_ino; // Номер тэга, который был добавлен последним (используется для поиска следующего места для добавления)
 
   struct qstr no_prefix;
 
   struct file* storage_file;
+  rwlock_t fileblock_amount_lock;
 };
 
 const u16 kTagFlagFree = 0;
@@ -148,6 +149,7 @@ int OpenTagFS(Storage* stor, const char* file_storage) {
 
 
   sr->storage_file = f;
+  rwlock_init(&sr->fileblock_amount_lock);
 
   sr->no_prefix = alloc_qstr_from_str("no-", 3);
 
@@ -249,6 +251,49 @@ struct qstr kEmptyQStr = QSTR_INIT("", 0);
 
 const size_t kNotFoundIno = (size_t)(-1);
 
+/*! Возвращает текущее (возможно, устаревшее) значение количества файловых блоков */
+u64 GetFileBlockAmount(struct StorageRaw* sr) {
+  u64 v;
+  read_lock(&sr->fileblock_amount_lock);
+  v = sr->fileblock_amount;
+  read_unlock(&sr->fileblock_amount_lock);
+  return v;
+}
+
+/*! Увеличиваем общее количество файловых блоков и возвращаем новое значение */
+u64 IncFileBlockAmount(struct StorageRaw* sr) {
+  u64 v = -EFAULT;
+  bool fba_failed = true;
+  u64 fba = -EFAULT;
+  loff_t pos = 0;
+  struct FileBlockHeader bh;
+
+  write_lock(&sr->fileblock_amount_lock);
+  ++sr->fileblock_amount;
+  sr->header_mem.fileblock_amount = cpu_to_le64(sr->fileblock_amount);
+  pos = 0;
+  // TODO LOCK HEADER WRITE ???
+  if (kernel_write(sr->storage_file, &sr->header_mem, sizeof(struct FSHeader),
+      &pos) == sizeof(struct FSHeader)) {
+    fba = sr->fileblock_amount;
+    fba_failed = false;
+  }
+  write_unlock(&sr->fileblock_amount_lock);
+  if (fba_failed) { return kNotFoundIno; }
+
+  // Инициализируем новый блок
+  // TODO WRITE FILEBLOCK LOCK?
+  pos = sr->fileblock_table_pos + (fba - 1) * sr->fileblock_size;
+  bh.prev_block_index = -2;
+  bh.prev_block_index = -1;
+  if (kernel_write(sr->storage_file, &bh, sizeof(bh), &pos) == sizeof(bh)) {
+    v = fba;
+  }
+
+  return v;
+}
+
+
 /* ???? Проверяет тэг на валидность (не удалён). Это быстрее, чем вычитывать весь тэг
 \param tag - номер тэга
 \return признак валидности. true - валидный (активный) */
@@ -325,7 +370,7 @@ bool CheckFileIsActive(struct StorageRaw* sr, size_t file) {
   BUG_ON(!sr);
   BUG_ON(!sr->storage_file);
 
-  if (file >= sr->fileblock_amount) {
+  if (file >= GetFileBlockAmount(sr)) {
     return false;
   }
 
@@ -347,7 +392,7 @@ bool CheckFileIsActive(struct StorageRaw* sr, size_t file) {
 \param data указатель на возвращаемый буфер с данными. Должно быть *data == NULL
 \param data_size указатель на размер данных
 \return 0 - если всё хорошо. Иначе отрицательный код ошибки */
-int AllocateReadFileData(struct StorageRaw* stor, size_t ino, void** data,
+int AllocateReadFileData(struct StorageRaw* sr, size_t ino, void** data,
                          size_t* data_size) {
   struct FileBlockHeader* block = NULL;
   loff_t pos;
@@ -357,15 +402,15 @@ int AllocateReadFileData(struct StorageRaw* stor, size_t ino, void** data,
   size_t prev_nod;
   size_t block_counter;
 
-  if (!stor || !stor->storage_file) { return -EINVAL; }
+  if (!sr || !sr->storage_file) { return -EINVAL; }
   if (!data || *data) { return -EINVAL; }
   if (!data_size) { return -EINVAL; }
-  if (ino >= stor->fileblock_amount) { return -EINVAL; }
-  if (stor->fileblock_size <= sizeof(struct FileBlockHeader)) { return -EINVAL; }
+  if (ino >= GetFileBlockAmount(sr)) { return -EINVAL; }
+  if (sr->fileblock_size <= sizeof(struct FileBlockHeader)) { return -EINVAL; }
 
   *data_size = 0;
 
-  block = kmalloc(stor->fileblock_size, GFP_KERNEL);
+  block = kmalloc(sr->fileblock_size, GFP_KERNEL);
   if (!block) { return -ENOMEM; }
 
   prev_nod = ino;
@@ -376,9 +421,9 @@ int AllocateReadFileData(struct StorageRaw* stor, size_t ino, void** data,
     size_t add_size;
     size_t next_block;
 
-    pos = stor->fileblock_table_pos + cur_nod * stor->fileblock_size;
-    rs = kernel_read(stor->storage_file, block, stor->fileblock_size, &pos);
-    if (rs != stor->fileblock_size) {
+    pos = sr->fileblock_table_pos + cur_nod * sr->fileblock_size;
+    rs = kernel_read(sr->storage_file, block, sr->fileblock_size, &pos);
+    if (rs != sr->fileblock_size) {
       res = -EFAULT;
       goto err_allmem;
     }
@@ -387,7 +432,7 @@ int AllocateReadFileData(struct StorageRaw* stor, size_t ino, void** data,
       goto err_allmem;
     }
 
-    add_size = stor->fileblock_size - sizeof(struct FileBlockHeader);
+    add_size = sr->fileblock_size - sizeof(struct FileBlockHeader);
     new_size = *data_size + add_size;
     *data = krealloc(*data, new_size, GFP_KERNEL);
     if (!*data) {
@@ -493,11 +538,10 @@ size_t ReserveFileBlock(struct StorageRaw* sr) {
   size_t ino;
   loff_t pos;
   struct FileBlockHeader bh;
-  size_t ws;
-  loff_t zeropos = 0;
+  u64 fba = GetFileBlockAmount(sr);
 
   // Поищем существующий незанятый файловый блок
-  for (ino = sr->min_fileblock_for_seek_empty; ino < sr->fileblock_amount; ++ino) {
+  for (ino = sr->min_fileblock_for_seek_empty; ino < fba; ++ino) {
     size_t rs;
     pos = sr->fileblock_table_pos + ino * sr->fileblock_size;
     rs = kernel_read(sr->storage_file, &bh, sizeof(bh), &pos);
@@ -505,6 +549,7 @@ size_t ReserveFileBlock(struct StorageRaw* sr) {
       break;
     }
     if (bh.prev_block_index == -1) {
+      // TODO LOCK-LOCK
       sr->min_fileblock_for_seek_empty = ino;
       bh.prev_block_index = -2;
       if (kernel_write(sr->storage_file, &bh, sizeof(bh), &pos) != sizeof(bh)) {
@@ -518,26 +563,27 @@ size_t ReserveFileBlock(struct StorageRaw* sr) {
   }
 
   // Попробуем добавить новый блок
-  ino = sr->fileblock_amount;
-  sr->min_fileblock_for_seek_empty = ino;
-  ++sr->fileblock_amount; // TODO LOCK-LOCK
-  pos = sr->fileblock_table_pos + ino * sr->fileblock_size;
-  bh.prev_block_index = -2;
-  if (kernel_write(sr->storage_file, &bh, sizeof(bh), &pos) != sizeof(bh)) {
-    return -EFAULT;
+  fba = IncFileBlockAmount(sr);
+  if (IS_ERR_VALUE(fba) || !fba) {
+    WARN_ON(fba == 0);
+    return kNotFoundIno;
   }
-  sr->header_mem.fileblock_amount = cpu_to_le64(sr->fileblock_amount);
-  ws = kernel_write(sr->storage_file, &sr->header_mem, sizeof(struct FSHeader),
-      &zeropos);
-  if (ws != sizeof(struct FSHeader)) { return -EFAULT; }
 
-  pr_info("TODO reserved new file block %u\n", (unsigned int)ino);
+  ino = fba - 1;
+  pr_info("TODO Reserve new file block with index %u\n", (unsigned int)ino);
 
   return ino;
 }
 
-
-/* Возвращает количество записанных байтов */
+/*! Записывает часть информации о файле в файловый блок. Если записались все
+данные (возвращаемое значение равно len), то блок закрывается
+(поле next_block_index выставляется равным самому блоку). Если записались не все
+данные, то индекс следующего блока выставляется в -1 и его нужно явно обновлять.
+\param fb_index индекс файлового блока, куда записываются данные
+\param prev_fb индекс предыдущего файлового блока, используется для построения цепочки блоков
+\param data данные для записи
+\param len длина данных для записи. Может быть больше, чем вмещается в блок
+\return количество записанных байтов или 0 в случае ошибки */
 size_t WriteFileBlock(struct StorageRaw* sr, size_t fb_index, size_t prev_fb,
     void* data, size_t len) {
   // TODO IMPROVE PERFORMANCE
@@ -546,6 +592,8 @@ size_t WriteFileBlock(struct StorageRaw* sr, size_t fb_index, size_t prev_fb,
   struct FileBlockHeader h;
   loff_t pos;
   size_t ws;
+
+  // TODO LOCK-LOCK fb_index блокировка блока на запись
 
   if (sr->fileblock_size <= sizeof(struct FileBlockHeader)) {
     pr_warn("Tagvfs: WARNING: file block size is less than header\n");
@@ -559,7 +607,7 @@ size_t WriteFileBlock(struct StorageRaw* sr, size_t fb_index, size_t prev_fb,
   zero_tail = sr->fileblock_size - sizeof(struct FileBlockHeader) - avail;
 
   h.prev_block_index = prev_fb;
-  h.next_block_index = -1;
+  h.next_block_index = avail == len ? fb_index : -1;
   pos = sr->fileblock_table_pos + sr->fileblock_size * fb_index;
   ws = kernel_write(sr->storage_file, &h, sizeof(h), &pos);
   if (ws != sizeof(h)) {
@@ -712,7 +760,7 @@ size_t AddFile(struct StorageRaw* sr, const char* link_name, size_t link_name_le
   pos += link_name_len;
   memcpy(file_info + pos, target_link, target_link_len);
 
-  // Резервируем первый блок. Он же номер файла
+  // Резервируем свободный блок. Первый зарезервирвоанный блок будет номер файла
   ino = ReserveFileBlock(sr);
   if (ino == kNotFoundIno) {
     res = -EFAULT;
@@ -736,15 +784,17 @@ size_t AddFile(struct StorageRaw* sr, const char* link_name, size_t link_name_le
       goto err;
     }
 
-    res = UpdateNextFileBlock(sr, fb_prev, fb_cur);
-    if (res) { goto err; }
+    if (fb_prev != fb_cur) {
+      // Обновим ссылку на следующий блок у предыдущего блока
+      // Не делается на первом блоке (когда fb_prev == fb_cur)
+      res = UpdateNextFileBlock(sr, fb_prev, fb_cur);
+      if (res) { goto err; }
+    }
 
     chunk += red;
     chunk_tail -= red;
 
-    if (chunk_tail == 0) {  // Так, записаны все данные
-      res = UpdateNextFileBlock(sr, fb_cur, fb_cur);
-      if (res) { goto err; }
+    if (chunk_tail == 0) {  // Так, записаны все данные. Просто выходим из цикла
       break;
     }
 
@@ -895,8 +945,9 @@ err:
 int RemoveTagFromAllFiles(struct StorageRaw* sr, size_t tagino) {
   size_t i;
   int res = 0;
+  u64 fba = GetFileBlockAmount(sr);
 
-  for (i = 0; i < sr->fileblock_amount; ++i) {
+  for (i = 0; i < fba; ++i) {
     struct TagMask mask = tagmask_empty();
 
     // TODO LOCK-LOCK
@@ -1110,11 +1161,13 @@ struct qstr tagfs_get_nth_file(Storage stor, const struct TagMask on_mask,
   size_t i;
   size_t cur_index;
   struct StorageRaw* sr;
+  u64 fba;
 
   if (!stor) { goto err; }
   sr = (struct StorageRaw*)(stor);
+  fba = GetFileBlockAmount(sr);
 
-  for (i = 0, cur_index = 0; i < sr->fileblock_amount; ++i) {
+  for (i = 0, cur_index = 0; i < fba; ++i) {
     struct qstr res = get_null_qstr();
     struct TagMask mask = tagmask_empty();
 
@@ -1144,11 +1197,13 @@ struct qstr tagfs_get_next_file(Storage stor, const struct TagMask on_mask,
   // TODO NEED TO IMPROVE PERFORMANCE
   size_t i;
   struct StorageRaw* sr;
+  u64 fba;
 
   if (!stor) { goto err; }
   sr = (struct StorageRaw*)(stor);
+  fba = GetFileBlockAmount(sr);
 
-  for (i = *ino + 1; i < sr->fileblock_amount; ++i) {
+  for (i = *ino + 1; i < fba; ++i) {
     struct qstr res = get_null_qstr();
     struct TagMask mask = tagmask_empty();
 
@@ -1176,11 +1231,13 @@ size_t tagfs_get_fileino_by_name(Storage stor, const struct qstr name,
   // TODO NEED TO IMPROVE PERFORMANCE
   struct StorageRaw* sr;
   size_t i;
+  u64 fba;
 
   WARN_ON(!stor);
   if (mask) { WARN_ON(!tagmask_is_empty(*mask)); }
   sr = (struct StorageRaw*)(stor);
-  for (i = 0; i < sr->fileblock_amount; ++i) {
+  fba = GetFileBlockAmount(sr);
+  for (i = 0; i < fba; ++i) {
     struct qstr res;
     int cmp;
     if (GetFileInfo(sr, i, mask, &res, NULL)) {
