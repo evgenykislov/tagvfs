@@ -5,6 +5,7 @@
 pushd ${TESTDIR}
 
 sudo umount copy
+sudo umount same_filename_copy
 
 popd
 

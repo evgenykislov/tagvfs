@@ -2,8 +2,6 @@
 
 . ./common.sh
 
-set -e
-
 pushd "${BUILDDIR}"
 # make clean
 make
