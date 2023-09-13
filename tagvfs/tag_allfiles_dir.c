@@ -26,6 +26,10 @@
 #include "tag_inode.h"
 #include "tag_storage.h"
 
+
+extern const struct dentry_operations tagfs_allfiles_dir_negative_dentry_ops;
+
+
 struct dir_data {
   unsigned long last_iterate_ino;
 };
@@ -90,6 +94,7 @@ struct dentry* tagfs_allfiles_dir_lookup(struct inode* dir, struct dentry *de,
   stor = super_block_storage(sb);
   ino = tagfs_get_fileino_by_name(stor, de->d_name, NULL);
   if (ino == kNotFoundIno) {
+    d_set_d_op(de, &tagfs_allfiles_dir_negative_dentry_ops); // TODO CHECK RESULT
     d_add(de, NULL);
     return NULL;
   }
@@ -134,8 +139,15 @@ loff_t tagfs_allfiles_dir_llseek(struct file* f, loff_t offset, int whence) {
 }
 
 int tagfs_allfiles_dir_unlink(struct inode* dirnod, struct dentry* de) {
+  d_set_d_op(de, &tagfs_allfiles_dir_negative_dentry_ops); // TODO CHECK RESULT
   return tagfs_del_file(inode_storage(dirnod), de->d_name);
 }
+
+
+int tagfs_allfiles_dir_revalidate(struct dentry* de, unsigned int flags) {
+  return 0;
+}
+
 
 const struct inode_operations tagfs_allfiles_dir_inode_ops = {
   .lookup = tagfs_allfiles_dir_lookup,
@@ -151,3 +163,7 @@ const struct file_operations tagfs_allfiles_dir_file_ops = {
   .read = generic_read_dir,
   .iterate_shared = tagfs_allfiles_dir_iterate
 };
+
+const struct dentry_operations tagfs_allfiles_dir_negative_dentry_ops = {
+  .d_revalidate = tagfs_allfiles_dir_revalidate
+}; // TODO Combine all revalidates into single common realization
