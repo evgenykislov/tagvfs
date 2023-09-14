@@ -40,7 +40,7 @@ int tagfs_allfiles_dir_iterate(struct file* f, struct dir_context* dc) {
   Storage stor;
   struct dentry* parent;
   struct qstr name = get_null_qstr();
-  size_t start_pos = dc->pos - 2;
+  size_t start_index;
   struct TagMask zero;
 
   stor = inode_storage(file_inode(f));
@@ -49,14 +49,11 @@ int tagfs_allfiles_dir_iterate(struct file* f, struct dir_context* dc) {
   zero = tagmask_init_zero(tagfs_get_maximum_tags_amount(stor));
   if (!dir_emit_dots(f, dc)) { return -ENOMEM; }
 
-  for (name = tagfs_get_nth_file(stor, zero, zero, start_pos, &ino);
+  start_index = dc->pos - 2;
+  for (name = tagfs_get_nth_file(stor, zero, zero, start_index, &ino);
       ino != kNotFoundIno; name = tagfs_get_next_file(stor, zero, zero, &ino)) {
-    if (ino == kNotFoundIno) {
-      break;
-    }
-
     if (!dir_emit(dc, name.name, name.len, ino + kFSRealFilesStartIno, DT_LNK)) {
-        return -ENOMEM;
+      return -ENOMEM;
     }
     dc->pos += 1;
 

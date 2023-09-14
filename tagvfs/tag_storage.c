@@ -1163,6 +1163,11 @@ struct qstr tagfs_get_nth_file(Storage stor, const struct TagMask on_mask,
   struct StorageRaw* sr;
   u64 fba;
 
+  if (index != 0) {
+    pr_info("TagVfs Low Performance: request n-th file with non-zero (%u) index\n",
+        (unsigned int)index); // TODO LOW PERFORMANCE
+  }
+
   if (!stor) { goto err; }
   sr = (struct StorageRaw*)(stor);
   fba = GetFileBlockAmount(sr);
@@ -1180,6 +1185,8 @@ struct qstr tagfs_get_nth_file(Storage stor, const struct TagMask on_mask,
       tagmask_release(&mask);
       return res;
     }
+
+    ++cur_index;
 
 free_next:
     tagmask_release(&mask);
