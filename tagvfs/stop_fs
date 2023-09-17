@@ -1,3 +1,0 @@
-sudo umount /tagfs/tag
-
-sudo rmmod tagvfs

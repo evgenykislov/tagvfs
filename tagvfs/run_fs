@@ -1,4 +1,0 @@
-sudo rmmod tagvfs
-
-make && sudo insmod tagvfs.ko && sudo mount -t tagvfs /tagfs/tag.raw /tagfs/tag/
-
