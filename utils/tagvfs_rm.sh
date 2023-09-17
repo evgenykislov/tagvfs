@@ -32,7 +32,7 @@ function rmfile {
   fi
 
   if ! [[ "${target}" == "" ]]; then
-    local tpath=$(dirname $(readlink -f "${1}"))
+    local tpath=$(dirname "$(readlink -f "${1}")")
     if ! [[ "${tpath}" == "${target}" ]] ; then
       return
     fi
