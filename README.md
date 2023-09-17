@@ -1,5 +1,5 @@
-Tag Virtual File System Tag Virtual File System
-
+# Tag Virtual File System Tag Virtual File System
+## Description
 Allows you to organize files (e.g. movies) as a tag structure: e.g. select all the movies of sci-fi movies about hackers.
 
 The peculiarity of this implementation is that the organization takes place natively for the user, i.e. it is represented in folders, files.
@@ -10,7 +10,16 @@ Implementation: tagvfs is implemented as a kernel module in Linux. To use tagvfs
 
 The code was tested on Debian GNU/Linux 11 (bullseye), kernel 5.10.
 
-Installation: Since tagvfs is a kernel module, it is built for the current kernel version. To build it, you will need the gcc package and the kernel header files. These are the packages ???? gcc linux????
+## Installation
+Since tagvfs is a kernel module, it sould be built for the current kernel version. To build it, you will need the gcc package and the kernel header files. These packages are installed by OS package manager. For example, you can use follow command in Debian:
+```console
+sudo apt install gcc linux-headers-$(uname -r)
+```
+Use follow command in tagvfs folder to build kernel module:
+```console
+make
+```
+are the packages ???? gcc linux????
 
 Running/Inserting the module
 
