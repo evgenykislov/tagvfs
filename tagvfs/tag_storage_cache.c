@@ -18,15 +18,23 @@ struct ItemInternal {
   struct hlist_node NameNode;
   struct hlist_node InoNode;
   struct CacheItem Item;
+  atomic_t LinkCounter_1; //!< Счётчик ссылок
 };
 
 unsigned int hash_name(const struct qstr name) {
   return full_name_hash(NULL, name.name, name.len);
 }
 
-void delete_item_wo_lock(struct ItemInternal* item) {
+void unlink_item_wo_lock(struct ItemInternal* item) {
   hash_del(&item->NameNode);
   hash_del(&item->InoNode);
+}
+
+
+void delete_item_wo_lock(struct ItemInternal* item) {
+
+  ??? link counter
+
   free_qstr(&item->Item.Name);
   if (item->Item.data_remover) {
     item->Item.data_remover(item->Item.user_data);
@@ -105,24 +113,28 @@ void tagfs_release_cache(Cache* cache) {
 }
 
 
-CacheIterator item_by_name_wo_lock(struct CacheInternal* ci, const struct qstr name) {
+/*! Увеличивает счётчик ссылок */
+CacheIterator item_by_name_wo_lock_1(struct CacheInternal* ci, const struct qstr name) {
   unsigned int key;
   struct ItemInternal* it;
 
   key = hash_name(name);
   hlist_for_each_entry(it, &ci->NameCache[hash_min(key, ci->CacheBits)], NameNode) {
     if (compare_qstr(it->Item.Name, name) != 0) { continue; }
+    ++it->LinkCounter;
     return &(it->Item);
   }
   return NULL;
 }
 
 
-CacheIterator item_by_ino_wo_lock(struct CacheInternal* ci, size_t ino) {
+/*! Увеличивает счётчик ссылок */
+CacheIterator item_by_ino_wo_lock_1(struct CacheInternal* ci, size_t ino) {
   struct ItemInternal* it;
 
   hlist_for_each_entry(it, &ci->InoCache[hash_min(ino, ci->CacheBits)], InoNode) {
     if (it->Item.Ino != ino) { continue; }
+    ++it->LinkCounter;
     return &(it->Item);
   }
   return NULL;
@@ -148,6 +160,7 @@ int create_add_item_wo_lock(struct CacheInternal* ci, size_t ino,
 
   hlist_add_head(&item->InoNode, &ci->InoCache[hash_min(ino, ci->CacheBits)]);
   hlist_add_head(&item->NameNode, &ci->NameCache[hash_min(name_key, ci->CacheBits)]);
+  item->LinkCounter = 1;
   return 0;
   // --------------
 err:
@@ -187,9 +200,12 @@ int tagfs_insert_item(Cache cache, size_t ino, const struct qstr name, void* dat
   struct CacheInternal* ci;
   int res;
 
+
   if (unlikely(cache == NULL || name.name == NULL || name.len == 0)) { return -EINVAL; }
 
   ci = (struct CacheInternal*)(cache);
+  if (unlikely(ino >= ci->OvermaxIno)) { return -ERANGE; }
+
   write_lock(&ci->CacheLock);
   if (item_by_ino_wo_lock(ci, ino)) {
     res = -EEXIST;
@@ -216,6 +232,17 @@ void tagfs_delete_item(Cache cache, CacheIterator it)
   ci = (struct CacheInternal*)(cache);
   item = container_of(it, struct ItemInternal, Item);
   write_lock(&ci->CacheLock);
-  delete_item_wo_lock(item);
+  unlink_item_wo_lock(item);
   write_unlock(&ci->CacheLock);
+  delete_item_wo_lock(item);
+}
+
+
+void tagfs_release_item(CacheIterator it) {
+  struct ItemInternal* item;
+
+  if (unlikely(!it)) { return; }
+
+  item = container_of(it, struct ItemInternal, Item);
+  delete_item_wo_lock(item);
 }

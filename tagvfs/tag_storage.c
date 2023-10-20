@@ -20,6 +20,9 @@
 #include <linux/slab.h>
 
 #include "common.h"
+#include "tag_storage_cache.h"
+
+#define kNameHashBits 10
 
 const u32 kMagicWord = 0x34562343;
 const u64 kTablesAlignment = 256;
@@ -78,14 +81,39 @@ struct StorageRaw {
   u16 fileblock_size;
   u64 fileblock_amount; // Переменная лочится fileblock_amount_lock
 
-  size_t min_fileblock_for_seek_empty; // Номер блока, с которого можно начинать поиск свободного блока (для ускорения файловых операций)  TODO LOCK???
+//  size_t min_fileblock_for_seek_empty; // Номер блока, с которого можно начинать поиск свободного блока (для ускорения файловых операций)  TODO LOCK
   u16 last_added_tag_ino; // Номер тэга, который был добавлен последним (используется для поиска следующего места для добавления)
 
   struct qstr no_prefix;
 
   struct file* storage_file;
-  rwlock_t fileblock_amount_lock;
+  rwlock_t fileblock_amount_lock; //!< Блокировка при расширении количества файловых блоков. Почему не на весь header - а остальное не меняется
+  rwlock_t fileblock_lock; //!< Блокировка при изменении содержимого файловых блоков
+  rwlock_t tag_lock; //!< Блокировка при изменении содержимого записей тэгов
+
+  unsigned int file_cache_bits;
+  size_t file_cache_overmax;
+  unsigned int tag_cache_bits;
+  size_t tag_cache_overmax;
+  Cache file_cache;
+  Cache tag_cache;
 };
+
+
+struct FileData {
+  struct TagMask tag_mask;
+  struct qstr link_target;
+};
+
+void FileDataRemover(void* data) {
+  struct FileData* fd = (struct FileData*)data;
+
+  if (!fd) { return; }
+  tagmask_release(&(fd->tag_mask));
+  free_qstr(&(fd->link_target));
+  kfree(fd);
+}
+
 
 const u16 kTagFlagFree = 0;
 const u16 kTagFlagActive = 1;
@@ -116,6 +144,22 @@ int OpenTagFS(Storage* stor, const char* file_storage) {
     return -ENOMEM;
   }
   sr = (struct StorageRaw*)(*stor);
+  sr->file_cache = NULL;
+  sr->tag_cache = NULL;
+
+  sr->file_cache_overmax = 10000; // TODO MAGIC NUMBERS
+  sr->file_cache_bits = 12; // TODO MAGIC NUMBERS
+  if ((res = tagfs_init_cache(&(sr->file_cache), sr->file_cache_bits,
+      sr->file_cache_overmax)) != 0) {
+    goto err_ca;
+  }
+
+  sr->tag_cache_overmax = 10000; // TODO MAGIC NUMBERS
+  sr->tag_cache_bits = 12; // TODO MAGIC NUMBERS
+  if ((res = tagfs_init_cache(&(sr->tag_cache), sr->tag_cache_bits,
+      sr->tag_cache_overmax)) != 0) {
+    goto err_ca;
+  }
 
   f = filp_open(file_storage, O_RDWR, 0);
   if (IS_ERR(f)) {
@@ -150,6 +194,8 @@ int OpenTagFS(Storage* stor, const char* file_storage) {
 
   sr->storage_file = f;
   rwlock_init(&sr->fileblock_amount_lock);
+  rwlock_init(&sr->fileblock_lock);
+  rwlock_init(&sr->tag_lock);
 
   sr->no_prefix = alloc_qstr_from_str("no-", 3);
 
@@ -158,6 +204,9 @@ int OpenTagFS(Storage* stor, const char* file_storage) {
 err_ao:
   filp_close(f, NULL);
 err_aa:
+  tagfs_release_cache(sr->tag_cache);
+  tagfs_release_cache(sr->file_cache);
+err_ca:
   kfree(*stor);
   *stor = NULL;
 
@@ -174,6 +223,10 @@ int CloseTagFS(Storage* stor) {
   if (!stor || !(*stor)) { return -EINVAL; }
   sr = (struct StorageRaw*)(*stor);
   filp_close(sr->storage_file, NULL);
+
+  tagfs_release_cache(&sr->tag_cache);
+  tagfs_release_cache(&sr->file_cache);
+
   kfree(sr);
   *stor = NULL;
   return 0;
@@ -260,8 +313,11 @@ u64 GetFileBlockAmount(struct StorageRaw* sr) {
   return v;
 }
 
-/*! Увеличиваем общее количество файловых блоков и возвращаем новое значение */
-u64 IncFileBlockAmount(struct StorageRaw* sr) {
+/*! Увеличиваем общее количество файловых блоков и возвращаем новое значение
+количества файловых блоков. Блокировка на файловую область не ставится.
+Добавление делается в хвост файла, поэтому новый блок имеет номер (кол-во - 1)
+\return обновлённое количество файловых блоков. Или отрицательный код ошибки */
+u64 IncFileBlockAmountWOLock(struct StorageRaw* sr) {
   u64 v = -EFAULT;
   bool fba_failed = true;
   u64 fba = -EFAULT;
@@ -272,7 +328,6 @@ u64 IncFileBlockAmount(struct StorageRaw* sr) {
   ++sr->fileblock_amount;
   sr->header_mem.fileblock_amount = cpu_to_le64(sr->fileblock_amount);
   pos = 0;
-  // TODO LOCK HEADER WRITE ???
   if (kernel_write(sr->storage_file, &sr->header_mem, sizeof(struct FSHeader),
       &pos) == sizeof(struct FSHeader)) {
     fba = sr->fileblock_amount;
@@ -282,7 +337,6 @@ u64 IncFileBlockAmount(struct StorageRaw* sr) {
   if (fba_failed) { return kNotFoundIno; }
 
   // Инициализируем новый блок
-  // TODO WRITE FILEBLOCK LOCK?
   pos = sr->fileblock_table_pos + (fba - 1) * sr->fileblock_size;
   bh.prev_block_index = -2;
   bh.prev_block_index = -1;
@@ -294,44 +348,42 @@ u64 IncFileBlockAmount(struct StorageRaw* sr) {
 }
 
 
-/* ???? Проверяет тэг на валидность (не удалён). Это быстрее, чем вычитывать весь тэг
-\param tag - номер тэга
-\return признак валидности. true - валидный (активный) */
-bool GetTagFlag(struct StorageRaw* sr, size_t tag, u16* flag) {
-  struct TagHeader th;
-  loff_t pos;
-  size_t rs;
-
-  BUG_ON(!sr);
-  BUG_ON(!sr->storage_file);
-
-  *flag = kTagFlagUndefined;
-  pos = sr->tag_table_pos + tag * sr->tag_record_size;
-  rs = kernel_read(sr->storage_file, &th, sizeof(struct TagHeader), &pos);
-  if (rs != sizeof(struct TagHeader)) {
-    // taginfo is out of file
-    return false;
-  }
-
-  *flag = th.tag_flags;
-  return true;
-}
-
-
-/* ??? */
+/* Вычитать имя тэга или вернуть содержимое кэша
+При чтении из файла используется блокировка
+\param tag номер тэга
+\param name указатель на переменную для возврата имени (входное содержимое переменное должна быть пустая строка). Не NULL
+\return отрицательный код ошибки. 0 - ошибок нет и тэг активный. -ENOENT - такого тэга нет или он неактивен */
 int ReadTagName(struct StorageRaw* sr, size_t tag, struct qstr* name) {
   void* tag_info;
   struct TagHeader* th;
   loff_t pos;
   int res = 0;
   size_t rs;
+  CacheItem* item;
 
-  if (!name) { return -EINVAL; }
-  if (name->name || name->len) { return -EINVAL; }
-  if (!sr || !sr->storage_file) { return -EINVAL; }
+  if (unlikely(!name)) { return -EINVAL; }
+  if (unlikely(name->name || name->len)) { return -EINVAL; }
+  if (unlikely(!sr || !sr->storage_file || !sr->tag_cache)) { return -EINVAL; }
+
+  item = tagfs_get_item_by_ino(sr->tag_cache, tag);
+  if (item) {
+    int res = -ENOENT;
+    if (item->Name.name && item->Name.len) {
+      // Получили реальное имя
+      if (name) { *name = alloc_qstr_from_qstr(item->Name); }
+      res = 0; // Тэг активный
+    }
+
+    tagfs_release_item(item);
+    return res;
+  }
+
+  // Элемента в кэше нет: либо вне границ, либо не добавлен
 
   tag_info = kzalloc(sr->tag_record_size, GFP_KERNEL);
   if (!tag_info) { return -ENOMEM; }
+
+  read_lock(&sr->tag_lock);
 
   pos = sr->tag_table_pos + tag * sr->tag_record_size;
   rs = kernel_read(sr->storage_file, tag_info, sr->tag_record_size, &pos);
@@ -346,53 +398,30 @@ int ReadTagName(struct StorageRaw* sr, size_t tag, struct qstr* name) {
   }
 
   if (th->tag_flags != kTagFlagActive) {
+    tagfs_insert_item(sr->tag_cache, tag, get_null_qstr(), NULL, NULL); // Результат не проверяется, т.к. смысла нет
     res = -ENOENT;
     goto err;
   }
 
   *name = alloc_qstr_from_str(tag_info + sizeof(struct TagHeader),
       th->tag_name_size);
+
+  tagfs_insert_item(sr->tag_cache, tag, *name, NULL, NULL); // Результат не проверяется, т.к. смысла нет
   // -----------------
 err:
+  read_unlock(&sr->tag_lock);
   kfree(tag_info);
   return res;
 }
 
-
-/* Проверяет файл на валидность (не удалён). Это быстрее, чем вычитывать весь файл
-\param file - номер файла
-\return 0 - невалидный (удалённый), 1 - валидный (активный), <0 - ошибка */
-bool CheckFileIsActive(struct StorageRaw* sr, size_t file) {
-  struct FileBlockHeader bh;
-  loff_t pos;
-  size_t rs;
-
-  BUG_ON(!sr);
-  BUG_ON(!sr->storage_file);
-
-  if (file >= GetFileBlockAmount(sr)) {
-    return false;
-  }
-
-  pos = sr->fileblock_table_pos + file * sr->fileblock_size;
-  rs = kernel_read(sr->storage_file, &bh, sizeof(struct FileBlockHeader), &pos);
-  if (rs != sizeof(struct FileBlockHeader)) {
-    return false;
-  }
-
-  return bh.prev_block_index == file;
-}
-
-
-
 /*! Вычитывает информацию о файле по номеру (ino). Для данных выделяется блок
- памяти.
+ памяти. Здесь кэш не используется. Блокировка на файловую область не ставится.
 \param stor описатель хранилища
 \param ino номер файла
 \param data указатель на возвращаемый буфер с данными. Должно быть *data == NULL
 \param data_size указатель на размер данных
 \return 0 - если всё хорошо. Иначе отрицательный код ошибки */
-int AllocateReadFileData(struct StorageRaw* sr, size_t ino, void** data,
+int AllocateReadFileDataWOLock(struct StorageRaw* sr, size_t ino, void** data,
                          size_t* data_size) {
   struct FileBlockHeader* block = NULL;
   loff_t pos;
@@ -478,7 +507,8 @@ err_allmem:
 }
 
 
-/* ??? */
+/*! Освобождаем блок памяти с данными о файле, выделенный функцией
+AllocateReadFileDataWOLock */
 void FreeFileData(void** data, size_t* data_size) {
   if (data) {
     kfree(*data);
@@ -489,7 +519,13 @@ void FreeFileData(void** data, size_t* data_size) {
   }
 }
 
-/* ??? */
+
+/*! Вычитываем информацию о файле
+\param ino номер файла
+\param tag_mask указатель на заполняемое поле маски. Может быть NULL.
+\param link_name указатель на заполняемое поле имени. Может быть NULL.
+\param link_target указатель на заполняемое поле целевой ссылки. Может быть NULL.
+\return отрицательный код ошибки. Нет ошибок - 0 */
 int GetFileInfo(struct StorageRaw* sr, size_t ino, struct TagMask* tag_mask,
     struct qstr* link_name, struct qstr* link_target) {
   void* data = NULL;
@@ -498,43 +534,92 @@ int GetFileInfo(struct StorageRaw* sr, size_t ino, struct TagMask* tag_mask,
   struct FileHeader* fh;
   size_t tagpos, namepos, targetpos;
   size_t taglen, namelen, targetlen;
+  CacheItem* item;
+  FileItem* file_item;
+  struct qstr item_name;
 
   if (!sr) { return -EINVAL; }
 
+  item = tagfs_get_item_by_ino(sr->file_cache, ino);
+  if (item) {
+    int res = -ENOENT;
+
+    if (item->Name.name && item->Name.len && item->user_data) {
+      // Получили не пустой элемент
+      FileData* fd = item->user_data;
+
+      if (tag_mask) {
+        *tag_mask = tagmask_init_by_mask(fd->tag_mask);
+      }
+      if (link_name) {
+        *link_name = alloc_qstr_from_qstr(item->Name);
+      }
+      if (link_target) {
+        *link_target = alloc_qstr_from_qstr(fd->link_target);
+      }
+
+      res = 0;
+    }
+
+    tagfs_release_item(item);
+    return res;
+  }
+
+  // Нет ничего в кэше
+  read_lock(&sr->fileblock_lock);
   res = AllocateReadFileData(sr, ino, &data, &data_size);
+  read_unlock(&sr->fileblock_lock);
+
   if (res) {
     return res;
+  }
+
+  file_item = (struct Fileitem*)kzalloc(sizeof(struct FileItem));
+  if (!file_item) {
+    res = -ENOMEM;
+    goto err;
   }
 
   fh = (struct FileHeader*)(data);
   tagpos = sizeof(struct FileHeader);
   taglen = le16_to_cpu(fh->tags_field_size);
-  if (tag_mask) {
-    *tag_mask = tagmask_init_zero(sr->tag_record_max_amount);
-    tagmask_fill_from_buffer(*tag_mask, data + tagpos, taglen);
-  }
 
+  fd->tag_mask = tagmask_init_zero(sr->tag_record_max_amount);
+  tagmask_fill_from_buffer(*tag_mask, data + tagpos, taglen);
   namepos = tagpos + taglen;
   namelen = le16_to_cpu(fh->link_name_size);
-  if (link_name) {
-    *link_name = alloc_qstr_from_str(data + namepos, namelen);
-  }
-
+  item_name = alloc_qstr_from_str(data + namepos, namelen);
   targetpos = namepos + namelen;
   targetlen = le32_to_cpu(fh->link_target_size);
-  if (link_target) {
-    *link_target = alloc_qstr_from_str(data + targetpos, targetlen);
+  fd->link_target = alloc_qstr_from_str(data + targetpos, targetlen);
+
+  if (tag_mask) {
+    *tag_mask = tagmask_init_by_mask(fd->tag_mask);
   }
 
-  FreeFileData(&data, &data_size);
+  if (link_name) {
+    *link_name = alloc_qstr_from_qstr(item_name);
+  }
 
-  return 0;
+  if (link_target) {
+    *link_target = alloc_qstr_from_qstr(fd->link_target);
+  }
+
+  res = tagfs_insert_item(sr->file_cache, ino, item_name, fd, FileDataRemover);
+  free_qstr(item_name);
+  if (res) {
+    FileDataRemover(fd);
+  }
+
+err:
+  FreeFileData(&data, &data_size);
+  return res;
 }
 
 
 /*! Резервирует файловый блок: объявляет его занятым, но не в составе файла
 \return номер зарезервированного блока или -1 (kNotFoundIno) в случае ошибки */
-size_t ReserveFileBlock(struct StorageRaw* sr) {
+size_t ReserveFileBlockWOLock(struct StorageRaw* sr) {
   size_t ino;
   loff_t pos;
   struct FileBlockHeader bh;
@@ -542,23 +627,33 @@ size_t ReserveFileBlock(struct StorageRaw* sr) {
 
   // Поищем существующий незанятый файловый блок
   for (ino = sr->min_fileblock_for_seek_empty; ino < fba; ++ino) {
+    CacheItem* item;
+    FileItem* file_item;
+    bool item_active = false;
     size_t rs;
+
+    item = tagfs_get_item_by_ino(sr->file_cache, ino);
+    if (item) {
+      if (item->Name.name && item->Name.len && item->user_data) {
+        item_active = true;
+      }
+      tagfs_release_item(item);
+    }
+    if (item_active) { continue; }
+
     pos = sr->fileblock_table_pos + ino * sr->fileblock_size;
     rs = kernel_read(sr->storage_file, &bh, sizeof(bh), &pos);
     if (rs != sizeof(struct FileBlockHeader)) {
       break;
     }
+
     if (bh.prev_block_index == -1) {
-      // TODO LOCK-LOCK
       sr->min_fileblock_for_seek_empty = ino;
       bh.prev_block_index = -2;
-      if (kernel_write(sr->storage_file, &bh, sizeof(bh), &pos) != sizeof(bh)) {
-        return -EFAULT;
+      if (kernel_write(sr->storage_file, &bh, sizeof(bh), &pos) == sizeof(bh)) {
+        return ino;
       }
-
-      pr_info("TODO reserved existed file block %u\n", (unsigned int)ino);
-
-      return ino;
+      return -EFAULT;
     }
   }
 
@@ -570,10 +665,9 @@ size_t ReserveFileBlock(struct StorageRaw* sr) {
   }
 
   ino = fba - 1;
-  pr_info("TODO Reserve new file block with index %u\n", (unsigned int)ino);
-
   return ino;
 }
+
 
 /*! Записывает часть информации о файле в файловый блок. Если записались все
 данные (возвращаемое значение равно len), то блок закрывается
@@ -584,7 +678,7 @@ size_t ReserveFileBlock(struct StorageRaw* sr) {
 \param data данные для записи
 \param len длина данных для записи. Может быть больше, чем вмещается в блок
 \return количество записанных байтов или 0 в случае ошибки */
-size_t WriteFileBlock(struct StorageRaw* sr, size_t fb_index, size_t prev_fb,
+size_t WriteFileBlockWOLock(struct StorageRaw* sr, size_t fb_index, size_t prev_fb,
     void* data, size_t len) {
   // TODO IMPROVE PERFORMANCE
   size_t avail;
@@ -592,8 +686,6 @@ size_t WriteFileBlock(struct StorageRaw* sr, size_t fb_index, size_t prev_fb,
   struct FileBlockHeader h;
   loff_t pos;
   size_t ws;
-
-  // TODO LOCK-LOCK fb_index блокировка блока на запись
 
   if (sr->fileblock_size <= sizeof(struct FileBlockHeader)) {
     pr_warn("Tagvfs: WARNING: file block size is less than header\n");
@@ -634,8 +726,12 @@ size_t WriteFileBlock(struct StorageRaw* sr, size_t fb_index, size_t prev_fb,
   return avail;
 }
 
-/* Закрыть цепочку файловых блоков  ??? */
-int UpdateNextFileBlock(struct StorageRaw* sr, size_t fb_index, size_t fb_next) {
+
+/*! Связать файловый блок со следующим
+\param fb_index номер файлового блока, который будет обновлён
+\param fb_next номер следующего файлового блока
+\return отрицательный код ошибки (0 - без ошибок) */
+int UpdateNextFileBlockWOLock(struct StorageRaw* sr, size_t fb_index, size_t fb_next) {
   struct FileBlockHeader h;
   loff_t block_pos;
   loff_t pos;
@@ -643,7 +739,7 @@ int UpdateNextFileBlock(struct StorageRaw* sr, size_t fb_index, size_t fb_next) 
 
   block_pos = sr->fileblock_table_pos + sr->fileblock_size * fb_index;
   pos = block_pos;
-  ws = kernel_read(sr->storage_file, &h, sizeof(h), &pos);
+  ws = kernel_read(sr->storage_file, &h, sizeof(h), &pos);  // TODO PERFORMANCE - обойтись без чтения, сразу записать несколько байт
   if (ws != sizeof(h)) { return -EFAULT; }
   h.next_block_index = fb_next;
   pos = block_pos;
@@ -652,19 +748,22 @@ int UpdateNextFileBlock(struct StorageRaw* sr, size_t fb_index, size_t fb_next) 
   return 0;
 }
 
-// TODO LOCK for clear block and set-block-used
+
+// TODO CHECK LOCK CACHE
+????????????
 /*! Очищает файловый блок - маркирует как свободный. Также возвращает номер
 блока, который должен продолжать цепочку файловых блоков
 \param fb_index индекс удаляемого файлового блока
 \param next_fb индекс файлового блока, который следующий в цепочке. Параметр может быть NULL
 \return код ошибки. 0 - если ошибок нет */
-int ClearFileBlock(struct StorageRaw* sr, size_t fb_index, size_t* next_fb) {
+int ClearFileBlockWOLock(struct StorageRaw* sr, size_t fb_index, size_t* next_fb) {
   struct FileBlockHeader h;
   loff_t block_pos;
   loff_t pos;
   size_t ws;
 
-  pr_info("TODO clear file block %u\n", (unsigned int)fb_index);
+
+  // TODO CACHE-CACHE
 
   block_pos = sr->fileblock_table_pos + sr->fileblock_size * fb_index;
   pos = block_pos;
@@ -685,8 +784,9 @@ int ClearFileBlock(struct StorageRaw* sr, size_t fb_index, size_t* next_fb) {
   return 0;
 }
 
-
-/* Переписать (обновить) данные в файловом описателе. Другие данные остаются
+// TODO CHECK LOCK CACHE
+// TODO Костыль-Костыль
+/*! Переписать (обновить) данные в файловом описателе. Другие данные остаются
 на месте, ничего не сдвигается. Если место записи выходит за границу существующей
 цепочки блоков, то запись прерывается. Функция может вызываться рекурсивно.
 \param blockino номер блока, в котором обновляются данные
@@ -695,7 +795,7 @@ int ClearFileBlock(struct StorageRaw* sr, size_t fb_index, size_t* next_fb) {
 \param data_pos позиция в файловом описателе, где обновлять данные
 \param nest_counter счётчик вложенности вызовов. В начальном вызове должен быть 0
 \return размер обновлённых данных */
-size_t UpdateDataIntoBlockChain(struct StorageRaw* sr, size_t blockino,
+size_t UpdateDataIntoBlockChainWOLock(struct StorageRaw* sr, size_t blockino,
     void* data, size_t data_size, size_t data_pos, size_t nest_counter) {
   struct FileBlockHeader h;
   loff_t block_pos;
@@ -733,6 +833,7 @@ size_t UpdateDataIntoBlockChain(struct StorageRaw* sr, size_t blockino,
       data_pos - max_data, nest_counter + 1);
 }
 
+// TODO CHECK LOCK CACHE
 
 /* name - это содержимое линки, целевой файл, link - это имя символьной ссылки */
 size_t AddFile(struct StorageRaw* sr, const char* link_name, size_t link_name_len,
@@ -746,6 +847,11 @@ size_t AddFile(struct StorageRaw* sr, const char* link_name, size_t link_name_le
   void* chunk;
   size_t chunk_tail;
   size_t ino = kNotFoundIno;
+
+
+  ????
+
+  // TODO CACHE-CACHE-CACHE
 
   // Сформируем информацию о файле
   file_info_size = sizeof(struct FileHeader) + sr->tag_mask_byte_size + link_name_len + target_link_len;
@@ -814,6 +920,8 @@ err_nomem:
   return res;
 }
 
+// TODO CHECK LOCK CACHE
+
 /*! Удалить запись о файле из хранилища
 \param fileino номер файла
 \return код ошибки */
@@ -822,6 +930,9 @@ int DelFile(struct StorageRaw* sr, size_t fileino) {
   int res = 0;
 
   pr_info("TODO delete file with ino %u\n", (unsigned int)fileino);
+
+
+  ????
 
   while (true) {
     size_t fn;
@@ -835,6 +946,8 @@ int DelFile(struct StorageRaw* sr, size_t fileino) {
   }
   BUG_ON(1);
 }
+
+// TODO CHECK LOCK CACHE
 
 /* ???
 
@@ -885,6 +998,7 @@ int UseFreeTagAsNew(struct StorageRaw* sr, const char* name, size_t name_len,
   return -ENOENT;
 }
 
+// TODO CHECK LOCK CACHE
 
 /*! Обновление состояния тэга (свободен/заблокирован/активен) и имени если
 текущее состояние соответствует ожидаемому (expected_state). Если состояние не
@@ -941,6 +1055,7 @@ err:
   return res;
 }
 
+// TODO CHECK LOCK CACHE
 
 int RemoveTagFromAllFiles(struct StorageRaw* sr, size_t tagino) {
   size_t i;
@@ -951,6 +1066,8 @@ int RemoveTagFromAllFiles(struct StorageRaw* sr, size_t tagino) {
     struct TagMask mask = tagmask_empty();
 
     // TODO LOCK-LOCK
+
+    ????
 
     if (!CheckFileIsActive(sr, i)) { continue; }
     if (GetFileInfo(sr, i, &mask, NULL, NULL)) { continue; }
@@ -968,6 +1085,7 @@ int RemoveTagFromAllFiles(struct StorageRaw* sr, size_t tagino) {
   return res;
 }
 
+// TODO CHECK LOCK CACHE
 
 // TODO CHECK USELESS
 /* Возвращает ссылку для файла по его номеру (ino). Если файла с таким номером
@@ -977,12 +1095,15 @@ int RemoveTagFromAllFiles(struct StorageRaw* sr, size_t tagino) {
 struct qstr get_fpath_by_ino(struct StorageRaw* sr, size_t ino) {
   struct qstr res;
 
+  ???
+
   if (GetFileInfo(sr, ino, NULL, NULL, &res)) {
     return kNullQstr;
   }
   return res;
 }
 
+// TODO CHECK LOCK CACHE
 
 int tagfs_init_storage(Storage* stor, const char* file_storage) {
   int err;
@@ -1002,14 +1123,18 @@ int tagfs_init_storage(Storage* stor, const char* file_storage) {
   return 0;
 }
 
+// TODO CHECK LOCK CACHE
+
 void tagfs_release_storage(Storage* stor) {
   CloseTagFS(stor);
 }
 
+// TODO CHECK LOCK CACHE
 
 void tagfs_sync_storage(Storage stor) {
 }
 
+// TODO CHECK LOCK CACHE
 
 struct qstr tagfs_get_tag_name_by_index(Storage stor, size_t index) {
   struct StorageRaw* sr;
@@ -1020,6 +1145,8 @@ struct qstr tagfs_get_tag_name_by_index(Storage stor, size_t index) {
   ReadTagName(sr, index, &name); // В случае ошибки возвращается пустая строка и этого достаточно
   return name;
 }
+
+// TODO CHECK LOCK CACHE
 
 size_t tagfs_get_tagino_by_name(Storage stor, const struct qstr name) {
   struct StorageRaw* sr;
@@ -1045,6 +1172,7 @@ size_t tagfs_get_tagino_by_name(Storage stor, const struct qstr name) {
   return kNotFoundIno;
 }
 
+// TODO CHECK LOCK CACHE
 
 // TODO PERFORMANCE Сделать подсчёт общего количества тэгов и делать быструю проверку на выход за существующее количество. Это будет часто запрашиваться
 struct qstr tagfs_get_nth_tag(Storage stor, size_t index,
@@ -1082,6 +1210,8 @@ err:
 }
 
 
+// TODO CHECK LOCK CACHE
+
 struct qstr tagfs_get_next_tag(Storage stor, const struct TagMask exclude_mask,
     size_t* tagino) {
   size_t start = *tagino;
@@ -1118,11 +1248,14 @@ err:
   return get_null_qstr();
 }
 
+// TODO CHECK LOCK CACHE
 
 struct qstr tagfs_get_fname_by_ino(Storage stor, size_t ino,
     struct TagMask* mask) {
   struct StorageRaw* sr;
   struct qstr res;
+
+  ????
 
   if (!stor) { return kNullQstr; }
   sr = (struct StorageRaw*)(stor);
@@ -1130,6 +1263,7 @@ struct qstr tagfs_get_fname_by_ino(Storage stor, size_t ino,
   return res;
 }
 
+// TODO CHECK LOCK CACHE
 
 struct qstr tagfs_get_special_name(Storage stor, enum FSSpecialName name) {
   struct qstr fixn = kNullQstr;
@@ -1156,6 +1290,8 @@ enum FSSpecialName tagfs_get_special_type(Storage stor, struct qstr name) {
   return kFSSpecialNameUndefined;
 }
 
+// TODO CHECK LOCK CACHE
+
 struct qstr tagfs_get_nth_file(Storage stor, const struct TagMask on_mask,
     const struct TagMask off_mask, size_t index, size_t* found_ino) {
   size_t i;
@@ -1167,6 +1303,8 @@ struct qstr tagfs_get_nth_file(Storage stor, const struct TagMask on_mask,
     pr_info("TagVfs Low Performance: request n-th file with non-zero (%u) index\n",
         (unsigned int)index); // TODO LOW PERFORMANCE
   }
+
+  ????
 
   if (!stor) { goto err; }
   sr = (struct StorageRaw*)(stor);
@@ -1198,6 +1336,7 @@ err:
   return get_null_qstr();
 }
 
+// TODO CHECK LOCK CACHE
 
 struct qstr tagfs_get_next_file(Storage stor, const struct TagMask on_mask,
     const struct TagMask off_mask, size_t* ino) {
@@ -1205,6 +1344,9 @@ struct qstr tagfs_get_next_file(Storage stor, const struct TagMask on_mask,
   size_t i;
   struct StorageRaw* sr;
   u64 fba;
+
+
+  ????
 
   if (!stor) { goto err; }
   sr = (struct StorageRaw*)(stor);
@@ -1232,6 +1374,7 @@ err:
   return get_null_qstr();
 }
 
+// TODO CHECK LOCK CACHE
 
 size_t tagfs_get_fileino_by_name(Storage stor, const struct qstr name,
     struct TagMask* mask) {
@@ -1239,6 +1382,9 @@ size_t tagfs_get_fileino_by_name(Storage stor, const struct qstr name,
   struct StorageRaw* sr;
   size_t i;
   u64 fba;
+
+  ????
+
 
   WARN_ON(!stor);
   if (mask) { WARN_ON(!tagmask_is_empty(*mask)); }
@@ -1260,19 +1406,27 @@ size_t tagfs_get_fileino_by_name(Storage stor, const struct qstr name,
   return kNotFoundIno;
 }
 
+// TODO CHECK LOCK CACHE
 
 struct qstr tagfs_get_file_link(Storage stor, size_t ino) {
   struct StorageRaw* sr;
+
+
+  ????
 
   if (!stor) { return kNullQstr; }
   sr = (struct StorageRaw*)(stor);
   return get_fpath_by_ino(sr, ino);
 }
 
+// TODO CHECK LOCK CACHE
 
 size_t tagfs_add_new_file(Storage stor, const char* target_name,
     const struct qstr link_name) {
   struct StorageRaw* sr;
+
+  ????
+
 
   if (!stor) { return kNotFoundIno; }
   sr = (struct StorageRaw*)(stor);
@@ -1280,9 +1434,14 @@ size_t tagfs_add_new_file(Storage stor, const char* target_name,
       strlen(target_name));
 }
 
+// TODO CHECK LOCK CACHE
+
 int tagfs_del_file(Storage stor, const struct qstr file) {
   struct StorageRaw* sr;
   size_t fino;
+
+
+  ????
 
   WARN_ON(!stor);
   if (!stor) { return -EINVAL; }
@@ -1293,6 +1452,7 @@ int tagfs_del_file(Storage stor, const struct qstr file) {
 }
 
 
+// TODO CHECK LOCK CACHE
 
 int tagfs_add_new_tag(Storage stor, const struct qstr tag_name, size_t* tagino) {
   struct StorageRaw* sr;
@@ -1302,6 +1462,7 @@ int tagfs_add_new_tag(Storage stor, const struct qstr tag_name, size_t* tagino) 
   return UseFreeTagAsNew(sr, tag_name.name, tag_name.len, tagino);
 }
 
+// TODO CHECK LOCK CACHE
 
 size_t tagfs_get_maximum_tags_amount(Storage stor) {
   struct StorageRaw* sr;
@@ -1311,10 +1472,14 @@ size_t tagfs_get_maximum_tags_amount(Storage stor) {
   return sr->tag_record_max_amount;
 }
 
+// TODO CHECK LOCK CACHE
 
 int tagfs_set_file_mask(Storage stor, size_t fileino,
     const struct TagMask mask) {
   struct StorageRaw* sr;
+
+
+  ????
 
   BUG_ON(!stor);
   sr = (struct StorageRaw*)(stor);
@@ -1331,6 +1496,7 @@ int tagfs_set_file_mask(Storage stor, size_t fileino,
   return 0;
 }
 
+// TODO CHECK LOCK CACHE
 
 const struct qstr tagfs_get_no_prefix(Storage stor) {
   struct StorageRaw* sr;
@@ -1340,6 +1506,7 @@ const struct qstr tagfs_get_no_prefix(Storage stor) {
   return sr->no_prefix;
 }
 
+// TODO CHECK LOCK CACHE
 
 int tagfs_del_tag(Storage stor, const struct qstr tag) {
   struct StorageRaw* sr;
