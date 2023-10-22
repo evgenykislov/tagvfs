@@ -41,12 +41,11 @@ const CacheIterator tagfs_get_item_by_name(Cache cache, const struct qstr name);
 \return указатель на элемент к кэше. Если элемента нет, то NULL */
 const CacheIterator tagfs_get_item_by_ino(Cache cache, size_t ino);
 
-/*! Вставить кэш. В кэше не должно быть элемента с номером ино.
+/*! Вставить элемент в кэш. В кэше не должно быть элемента-дубликата с номером ино.
 Также не должно быть дублирующего имени (прим.: пустые имена могут дублироваться)
 Если будет дубликат, то функция вернёт -EEXIST.
 Если номер ино превышает границу кэша, то вернётся -ERANGE
-В случае ошибок элемент не добавляется
-и блок пользовательских данных не очищается.
+В случае ошибок элемент не добавляется; блок пользовательских данных очищается.
 \param cache кэш-хранилище
 \param ino номер/индекс элемента. Номер 0 - допустимое значение
 \param name имя элемента. Имя не может быть пустым (иначе вернётся ошибка -EINVAL)
@@ -56,10 +55,11 @@ const CacheIterator tagfs_get_item_by_ino(Cache cache, size_t ino);
 int tagfs_insert_item(Cache cache, size_t ino, const struct qstr name, void* data,
     void (*remover)(void*));
 
-/*! Удалить элемент из хранилища
+/*! Удалить элемент из хранилища. Содержимое остаётся валидным и после удаления
+из хранилище - до тех пор, пока не будут освобождены все копии
 \param cache кэш-хранилище
 \param item элемент для удаления */
-void tagfs_delete_item(Cache cache, CacheIterator it);
+void tagfs_delete_item(Cache cache, CacheIterator item);
 
 /*! Освободить найденный ранее элемент */
 void tagfs_release_item(CacheIterator it);

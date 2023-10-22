@@ -18,23 +18,32 @@ struct ItemInternal {
   struct hlist_node NameNode;
   struct hlist_node InoNode;
   struct CacheItem Item;
-  atomic_t LinkCounter_1; //!< Счётчик ссылок
+  atomic_t LinkCounter; //!< Счётчик ссылок
 };
 
+/*! Функция, вычисляющая хэш имени
+\param name строка (имя), по которой нужно сосчитать хэш
+\return значение хэша */
 unsigned int hash_name(const struct qstr name) {
   return full_name_hash(NULL, name.name, name.len);
 }
 
+
+/*! Отвяжем элемент из обеих хэш-таблиц. Эта функция не удаляет сам элемент
+\param item элемент для отвязки */
 void unlink_item_wo_lock(struct ItemInternal* item) {
   hash_del(&item->NameNode);
   hash_del(&item->InoNode);
 }
 
 
+/*! "Заявим" удаление элемента. Если элементом ещё пользуются, то фактического
+удаления не будет
+\param item элемент для удаления */
 void delete_item_wo_lock(struct ItemInternal* item) {
+  if (!atomic_dec_and_test(&item->LinkCounter)) { return; }
 
-  ??? link counter
-
+  // So, counter is zero. Make real deletion
   free_qstr(&item->Item.Name);
   if (item->Item.data_remover) {
     item->Item.data_remover(item->Item.user_data);
@@ -43,6 +52,7 @@ void delete_item_wo_lock(struct ItemInternal* item) {
 }
 
 
+// Описание в хедере
 int tagfs_init_cache(Cache* cache, unsigned int cache_bits, size_t overmax_ino) {
   struct CacheInternal* ci;
   size_t cache_size = 1 << cache_bits;
@@ -81,6 +91,7 @@ err_cache:
 }
 
 
+// Описание в хедере
 void tagfs_release_cache(Cache* cache) {
   struct CacheInternal* ci;
   int bkt;
@@ -113,8 +124,11 @@ void tagfs_release_cache(Cache* cache) {
 }
 
 
-/*! Увеличивает счётчик ссылок */
-CacheIterator item_by_name_wo_lock_1(struct CacheInternal* ci, const struct qstr name) {
+/*! Ищем элемент кэша по имени и возвращаем что нашли. У найденного элемента
+увеличиваем счётчик ссылок использования.
+\param name имя для поиска
+\return найденный элемент. Если элемент не найден, то возвращается NULL */
+CacheIterator item_by_name_wo_lock(struct CacheInternal* ci, const struct qstr name) {
   unsigned int key;
   struct ItemInternal* it;
 
@@ -128,7 +142,10 @@ CacheIterator item_by_name_wo_lock_1(struct CacheInternal* ci, const struct qstr
 }
 
 
-/*! Увеличивает счётчик ссылок */
+/*! Ищем элемент кэша по номеру и возвращаем что нашли. У найденного элемента
+увеличиваем счётчик ссылок использования.
+\param ino номер для поиска
+\return найденный элемент. Если элемент не найден, то возвращается NULL */
 CacheIterator item_by_ino_wo_lock_1(struct CacheInternal* ci, size_t ino) {
   struct ItemInternal* it;
 
@@ -141,7 +158,12 @@ CacheIterator item_by_ino_wo_lock_1(struct CacheInternal* ci, size_t ino) {
 }
 
 
-/*! Создадим элемент и добавим его в два кэша
+/*! Создадим элемент и добавим его кэш номеров. Если имя не пустое, то добавляем
+в кэш имён.
+\param ino номер элемента
+\param name имя элемента. Может быть пустым
+\param user_data пользовательские данные. Могут быть NULL
+\param data_remover функция удаления пользовательских данных. Может быть NULL
 \return отрицательный код ошибки. Если ошибок нет - 0 */
 int create_add_item_wo_lock(struct CacheInternal* ci, size_t ino,
     const struct qstr name, void* user_data, void (*data_remover)(void*)) {
@@ -160,7 +182,7 @@ int create_add_item_wo_lock(struct CacheInternal* ci, size_t ino,
 
   hlist_add_head(&item->InoNode, &ci->InoCache[hash_min(ino, ci->CacheBits)]);
   hlist_add_head(&item->NameNode, &ci->NameCache[hash_min(name_key, ci->CacheBits)]);
-  item->LinkCounter = 1;
+  atomic_set(&item->LinkCounter, 1);
   return 0;
   // --------------
 err:
@@ -170,6 +192,7 @@ err:
 }
 
 
+// Описание в хедере
 const CacheIterator tagfs_get_item_by_name(Cache cache, const struct qstr name) {
   struct CacheInternal* ci;
   CacheIterator it;
@@ -183,6 +206,8 @@ const CacheIterator tagfs_get_item_by_name(Cache cache, const struct qstr name) 
   return it;
 }
 
+
+// Описание в хедере
 const CacheIterator tagfs_get_item_by_ino(Cache cache, size_t ino) {
   struct CacheInternal* ci;
   CacheIterator it;
@@ -196,6 +221,8 @@ const CacheIterator tagfs_get_item_by_ino(Cache cache, size_t ino) {
   return it;
 }
 
+
+// Описание в хедере
 int tagfs_insert_item(Cache cache, size_t ino, const struct qstr name, void* data, void (*remover)(void*)) {
   struct CacheInternal* ci;
   int res;
@@ -219,6 +246,9 @@ int tagfs_insert_item(Cache cache, size_t ino, const struct qstr name, void* dat
   }
 
   write_unlock(&ci->CacheLock);
+  if (res && data && data_remover) {
+    data_remover(data);
+  }
   return res;
 }
 
