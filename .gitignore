@@ -56,3 +56,4 @@ Makefile
 
 test_utils/
 build-test_utils-*/
+tests/*.txt

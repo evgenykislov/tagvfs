@@ -266,8 +266,9 @@ struct dentry* fs_mount(struct file_system_type* fstype, int flags,
 
 
 void fs_kill(struct super_block* sb) {
-  tagfs_release_storage(&sb->s_fs_info);
+  Storage stor = sb->s_fs_info;
   generic_shutdown_super(sb);
+  tagfs_release_storage(&stor);
 }
 
 struct file_system_type fs_type = { .name = tagvfs_name, .mount = fs_mount,
