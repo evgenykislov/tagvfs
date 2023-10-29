@@ -95,8 +95,8 @@ struct StorageRaw {
   size_t file_cache_overmax;
   unsigned int tag_cache_bits;
   size_t tag_cache_overmax;
-  Cache file_cache;
-  Cache tag_cache;
+  Cache file_cache; //!< Кэш файловых записей. Если запись неактивна, то имя пустое. Для активной записи пользовательские данные - FileData
+  Cache tag_cache; //!< Кэш тегов. Если тэг неактивный, то имя пустое. Пользовательские данные всегда NULL.
 };
 
 
@@ -198,6 +198,9 @@ int OpenTagFS(Storage* stor, const char* file_storage) {
   rwlock_init(&sr->tag_lock);
 
   sr->no_prefix = alloc_qstr_from_str("no-", 3);
+
+
+  ???? Read all tags and files into cache
 
   return 0;
   // --------------
@@ -520,7 +523,7 @@ void FreeFileData(void** data, size_t* data_size) {
 }
 
 
-/*! Вычитываем информацию о файле
+/*! Вычитываем информацию о файле. Может ставить блокировку на файловый блок
 \param ino номер файла
 \param tag_mask указатель на заполняемое поле маски. Может быть NULL.
 \param link_name указатель на заполняемое поле имени. Может быть NULL.
@@ -607,10 +610,7 @@ int GetFileInfo(struct StorageRaw* sr, size_t ino, struct TagMask* tag_mask,
 
   res = tagfs_insert_item(sr->file_cache, ino, item_name, fd, FileDataRemover);
   free_qstr(item_name);
-  if (res) {
-    FileDataRemover(fd);
-  }
-
+  // -----------------
 err:
   FreeFileData(&data, &data_size);
   return res;
@@ -998,14 +998,14 @@ int UseFreeTagAsNew(struct StorageRaw* sr, const char* name, size_t name_len,
   return -ENOENT;
 }
 
-// TODO CHECK LOCK CACHE
 
 /*! Обновление состояния тэга (свободен/заблокирован/активен) и имени если
 текущее состояние соответствует ожидаемому (expected_state). Если состояние не
 соответствует желаемому, то информация о тэге не изменяется.
 \param tagino номер (ino) тэга
 \param expect_state ожидаемое состояние тэга
-\param new_state, new_name, new_name_len новое состояние и имя (name и len) тэга
+\param new_state, new_name, new_name_len новое состояние и имя (name и len) тэга.
+Имя (new_name) может быть NULL - в этом случае имя не изменяется
 \return 0 - если состояние успешно изменилось. -EINVAL - если состояние тэга
 не соответствует ожидаемому. -EFAULT - если произошла ошибка чтения/записи:
 недостаточно прав для операции или ошибочный формат хранилища */
@@ -1014,10 +1014,10 @@ int TagFlagUpdate(struct StorageRaw* sr, size_t tagino, u16 expect_state,
   struct TagHeader th;
   loff_t basepos, pos;
   int res = 0;
-
-// LOCK-LOCK
+  CacheIterator item = NULL;
 
   if (tagino >= sr->tag_record_max_amount) { return -EFAULT; }
+  write_lock(&sr->tag_lock);
   pos = basepos = sr->tag_table_pos + sr->tag_record_size * tagino;
   if (kernel_read(sr->storage_file, &th, sizeof(th), &pos) != sizeof(th)) {
     res = -EFAULT;
@@ -1025,6 +1025,13 @@ int TagFlagUpdate(struct StorageRaw* sr, size_t tagino, u16 expect_state,
   }
 
   if (th.tag_flags != expect_state) {
+    res = -EINVAL;
+    goto err;
+  }
+
+  item = tagfs_get_item_by_ino(sr->tag_cache, tagino);
+  WARN_ON(!item);
+  if (!item) {
     res = -EINVAL;
     goto err;
   }
@@ -1050,36 +1057,65 @@ int TagFlagUpdate(struct StorageRaw* sr, size_t tagino, u16 expect_state,
       goto err;
     }
   }
+
+  res = tagfs_insert_item(sr->tag_cache, tagino,
+      new_state == kTagFlagActive ? item->Name : kEmptyQStr, NULL, NULL);
+  if (res != 0) {
+    goto err;
+  }
   // -----------------
 err:
+  tagfs_release_item(item);
+  write_unlock(&sr->tag_lock);
   return res;
 }
 
-// TODO CHECK LOCK CACHE
 
+/*! Удалим тэг из всех файлов. При очистке ставится блокировка на файловый блок
+\param tagino номер тэга, который будет удаляться
+\return отрицательный код ошибки . 0 если нет ошибок */
 int RemoveTagFromAllFiles(struct StorageRaw* sr, size_t tagino) {
   size_t i;
   int res = 0;
   u64 fba = GetFileBlockAmount(sr);
 
   for (i = 0; i < fba; ++i) {
+    CacheItem* item;
     struct TagMask mask = tagmask_empty();
 
-    // TODO LOCK-LOCK
+    write_lock(&sr->fileblock_lock);
 
-    ????
+    item = tagfs_get_item_by_ino(sr->file_cache, i);
+    if (item) {
+      if (item->Name.name && item->Name.len) {
+        FileData* fd = item->user_data;
+        mask = tagmask_init_by_mask(fd->tag_mask);
+      }
 
-    if (!CheckFileIsActive(sr, i)) { continue; }
-    if (GetFileInfo(sr, i, &mask, NULL, NULL)) { continue; }
+      tagfs_release_item(item);
+    } else {
+      if (CheckFileIsActive(sr, i)) {
+        GetFileInfo(sr, i, &mask, NULL, NULL);
+      }
+    }
 
+    if (tagmask_is_empty(mask)) {
+      // По этому номеру нет файла
+      write_unlock(&sr->fileblock_lock);
+      continue;
+    }
+
+    // Обновляем значения в маске
     if (tagmask_check_tag(mask, tagino)) {
       tagmask_set_tag(mask, tagino, false);
-      if (UpdateDataIntoBlockChain(sr, i, mask.data, mask.byte_len,
+      if (UpdateDataIntoBlockChainWOLock(sr, i, mask.data, mask.byte_len,
           sizeof(struct FileHeader), 0) != mask.byte_len) {
         res = -EFAULT;
       }
     }
+
     tagmask_release(&mask);
+    write_unlock(&sr->fileblock_lock);
   }
 
   return res;
@@ -1087,21 +1123,6 @@ int RemoveTagFromAllFiles(struct StorageRaw* sr, size_t tagino) {
 
 // TODO CHECK LOCK CACHE
 
-// TODO CHECK USELESS
-/* Возвращает ссылку для файла по его номеру (ino). Если файла с таким номером
-нет, то возвращается пустая (null) строка.
-\param ino номер (ino) файла
-\return путь-ссылка для файла. Строку должен удалить получать результата */
-struct qstr get_fpath_by_ino(struct StorageRaw* sr, size_t ino) {
-  struct qstr res;
-
-  ???
-
-  if (GetFileInfo(sr, ino, NULL, NULL, &res)) {
-    return kNullQstr;
-  }
-  return res;
-}
 
 // TODO CHECK LOCK CACHE
 
@@ -1384,7 +1405,7 @@ size_t tagfs_get_fileino_by_name(Storage stor, const struct qstr name,
   u64 fba;
 
   ????
-
+?????????????????????????????????????????
 
   WARN_ON(!stor);
   if (mask) { WARN_ON(!tagmask_is_empty(*mask)); }
@@ -1406,17 +1427,18 @@ size_t tagfs_get_fileino_by_name(Storage stor, const struct qstr name,
   return kNotFoundIno;
 }
 
-// TODO CHECK LOCK CACHE
 
 struct qstr tagfs_get_file_link(Storage stor, size_t ino) {
   struct StorageRaw* sr;
-
-
-  ????
+  struct qstr res;
 
   if (!stor) { return kNullQstr; }
   sr = (struct StorageRaw*)(stor);
-  return get_fpath_by_ino(sr, ino);
+  if (GetFileInfo(sr, ino, NULL, NULL, &res) == 0) {
+    return res;
+  }
+
+  return kNullQstr;
 }
 
 // TODO CHECK LOCK CACHE
@@ -1496,7 +1518,6 @@ int tagfs_set_file_mask(Storage stor, size_t fileino,
   return 0;
 }
 
-// TODO CHECK LOCK CACHE
 
 const struct qstr tagfs_get_no_prefix(Storage stor) {
   struct StorageRaw* sr;
@@ -1506,7 +1527,6 @@ const struct qstr tagfs_get_no_prefix(Storage stor) {
   return sr->no_prefix;
 }
 
-// TODO CHECK LOCK CACHE
 
 int tagfs_del_tag(Storage stor, const struct qstr tag) {
   struct StorageRaw* sr;

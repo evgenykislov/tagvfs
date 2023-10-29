@@ -181,10 +181,13 @@ size_t tagfs_get_maximum_tags_amount(Storage stor);
 size_t tagfs_get_active_tags_amount(Storage stor);
 
 
-/* ??? */
+/*! Возвращает строку с no-префиксом. Строка константная, удалять не требуется
+\return строка с префиксом. Не может быть пустой */
 const struct qstr tagfs_get_no_prefix(Storage stor);
 
-/*! ??? */
+/*! Удалим тэг из файловой системы
+\param tag имя тэга. Не может быть пустой строкой
+\return отрицательный код ошибки. 0 - нет ошибок */
 int tagfs_del_tag(Storage stor, const struct qstr tag);
 
 
