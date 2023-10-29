@@ -174,6 +174,7 @@ int CloseTagFS(Storage* stor) {
   if (!stor || !(*stor)) { return -EINVAL; }
   sr = (struct StorageRaw*)(*stor);
   filp_close(sr->storage_file, NULL);
+  free_qstr(&sr->no_prefix);
   kfree(sr);
   *stor = NULL;
   return 0;
@@ -464,6 +465,7 @@ int AllocateReadFileData(struct StorageRaw* sr, size_t ino, void** data,
     goto err_allmem;
   }
 
+  kfree(block);
   return 0;
 
   // ----------
