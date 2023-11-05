@@ -147,11 +147,11 @@ int OpenTagFS(Storage* stor, const char* file_storage) {
   sr->tag_cache = NULL;
 
   if ((res = tagfs_init_cache(&(sr->file_cache), kFileHashBits)) != 0) {
-    goto err_ca;
+    goto err_aa;
   }
 
   if ((res = tagfs_init_cache(&(sr->tag_cache), kTagHashBits)) != 0) {
-    goto err_ca;
+    goto err_aa;
   }
 
   f = filp_open(file_storage, O_RDWR, 0);
@@ -200,9 +200,8 @@ int OpenTagFS(Storage* stor, const char* file_storage) {
 err_ao:
   filp_close(f, NULL);
 err_aa:
-  tagfs_release_cache(sr->tag_cache);
-  tagfs_release_cache(sr->file_cache);
-err_ca:
+  tagfs_release_cache(&sr->tag_cache);
+  tagfs_release_cache(&sr->file_cache);
   kfree(*stor);
   *stor = NULL;
 
@@ -411,8 +410,10 @@ void ReadAllTagsToCache(struct StorageRaw* sr) {
     }
 
     // Таг есть и активный
-    if (tagfs_insert_item(sr->tag_cache, tag, name, NULL, NULL)) {
-      pr_warn("tagvfs: ERROR in caching tag %u\n", (unsigned int)tag);
+    res = tagfs_insert_item(sr->tag_cache, tag, name, NULL, NULL);
+    if (res) {
+      pr_warn("tagvfs: ERROR %d in caching tag %u (open storage)\n", res,
+          (unsigned int)tag);
     }
 
     free_qstr(&name);
@@ -583,7 +584,12 @@ int ReadFileInfoFromStorage(struct StorageRaw* sr, size_t ino,
   read_lock(&sr->fileblock_lock);
   res = AllocateReadFileDataWOLock(sr, ino, &data, &data_size);
   read_unlock(&sr->fileblock_lock);
-  if (res) { return res; }
+  if (res) {
+    if (res != -ENOENT) {
+      pr_info("debug Can't read file %u and got error %d\n", (unsigned int)ino, res);
+    }
+    return res;
+  }
 
   fh = (struct FileHeader*)(data);
   tagpos = sizeof(struct FileHeader);
@@ -1035,24 +1041,26 @@ int DelFileFromStorage(struct StorageRaw* sr, size_t fileino) {
       goto exit;
     }
     if (fi == fn) {
+      // Следующий блок равен текущему? - это финальный блок.
       // Должно res == 0
       goto exit;
     }
+    prev = fi;
     fi = fn;
   }
   res = -EFBIG;
 exit:
-  write_lock(&sr->fileblock_lock);
+  write_unlock(&sr->fileblock_lock);
   return res;
 }
 
 
 /*! Добавляет новый тэг (очевидно взамен некоторого свободного).
-Функция использует блокировки
+Функция использует кэш и блокировки
 \param name, name_len имя тэга и длина имени
 \param tagino возвращает номер (ino) созданного тэга. Может быть NULL
 \return отрицательный код ошибки. 0 - нет ошибок */
-int AddTagToStorage(struct StorageRaw* sr, const char* name, size_t name_len,
+int AddNewTag(struct StorageRaw* sr, const char* name, size_t name_len,
     size_t* tagino) {
   size_t i;
   int res;
@@ -1539,14 +1547,8 @@ int tagfs_add_new_tag(Storage stor, const struct qstr tag_name, size_t* tagino) 
 
   if (!stor) { return -EINVAL; }
   sr = (struct StorageRaw*)(stor);
-  res =  AddTagToStorage(sr, tag_name.name, tag_name.len, &tag);
+  res =  AddNewTag(sr, tag_name.name, tag_name.len, &tag);
   if (res) { return res; }
-
-  res = tagfs_insert_item(sr->tag_cache, tag, tag_name, NULL, NULL);
-  if (res) {
-    pr_warn("tagvfs: ERROR in caching tag %u\n", (unsigned int)tag);
-    return res;
-  }
 
   if (tagino) {
     *tagino = tag;

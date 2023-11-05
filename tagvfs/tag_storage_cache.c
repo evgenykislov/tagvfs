@@ -118,12 +118,12 @@ void tagfs_release_cache(Cache* cache) {
   ci = (struct CacheInternal*)(*cache);
 
   if (write_trylock(&ci->CacheLock) == 0) {
-    write_unlock(&ci->CacheLock);
-  } else {
-    // Ошика в логике: блокировка ещё используется
+    // Ошибка в логике: блокировка ещё используется. Оставляем все ресурсы в утечку памяти.
     WARN(1, "Tagvfs Logic Error: cache lock as active yet\n");
+    return;
   }
 
+  // Кэшем никто не пользуется. Вот сейчас всё и подчистим
   // Удалим все элементы
   for (bkt = 0, item = NULL; item == NULL && bkt < ci->CacheSize; ++bkt) {
     struct hlist_node* tmp;
@@ -142,7 +142,6 @@ void tagfs_release_cache(Cache* cache) {
   write_unlock(&ci->CacheLock);
 
   kfree(ci);
-
   *cache = NULL;
 }
 
@@ -247,18 +246,23 @@ const CacheIterator tagfs_get_item_by_ino(Cache cache, size_t ino) {
 // Описание в хедере
 int tagfs_insert_item(Cache cache, size_t ino, const struct qstr name, void* data, void (*remover)(void*)) {
   struct CacheInternal* ci;
-  int res;
-
+  CacheIterator it;
+  int res = 0;
 
   if (unlikely(cache == NULL || name.name == NULL || name.len == 0)) { return -EINVAL; }
 
   ci = (struct CacheInternal*)(cache);
 
   write_lock(&ci->CacheLock);
-  if (item_by_ino_wo_lock(ci, ino)) {
+
+  it = item_by_ino_wo_lock(ci, ino);
+  if (it) {
+    tagfs_release_item(it);
     res = -EEXIST;
   } else {
-    if (item_by_name_wo_lock(ci, name)) {
+    it = item_by_name_wo_lock(ci, name);
+    if (it) {
+      tagfs_release_item(it);
       res = -EEXIST;
     } else {
       // Добавляем
@@ -267,6 +271,7 @@ int tagfs_insert_item(Cache cache, size_t ino, const struct qstr name, void* dat
   }
 
   write_unlock(&ci->CacheLock);
+
   if (res && data && remover) {
     remover(data);
   }
