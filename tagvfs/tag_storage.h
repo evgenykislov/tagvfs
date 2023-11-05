@@ -82,7 +82,7 @@ struct qstr tagfs_get_nth_tag(Storage stor, size_t index,
 /*! Возвращает название следующего (после tagino) тэга. Индекс нового тэга
 перезаписывает в tagino. Если тэгов больше нет, то возвращается пустая строка
 и индекс kNotFoundIno
-\param tagino индекс тэга, ПОСЛЕ которого искать следующий
+\param tagino индекс тэга, ПОСЛЕ которого искать следующий (size_t(-1) для поиска сначала)
 \return строка с именем тэга. Если тэгов нет, то возвращается пустая строка.
 Строка выделяется на памяти, её необходимо после удалить. */
 struct qstr tagfs_get_next_tag(Storage stor, const struct TagMask exclude_mask,
@@ -125,9 +125,13 @@ enum FSSpecialName tagfs_get_special_type(Storage stor, const struct qstr name);
 struct qstr tagfs_get_nth_file(Storage stor, const struct TagMask on_mask,
     const struct TagMask off_mask, size_t index, size_t* found_ino);
 
-/*! Находит номер файла с именем ino  ????
-\param name имя файла, номер которого нужно получить
-\return номер файла или kNotFoundIno (если файл не найден) */
+/*! Находит файл (следующий), подходящий по маскам on_mask/off_mask и стоящий
+следующим за номер ino
+\param on_mask маска битов, которые установлены у файла
+\param off_mask маска битов, которые сброшены у файла
+\param ino на вход - номер файла, после которого искать следующий файл. На выход - номер найденного файла или kNotFoundIno
+\return найденное имя файла. Если файл не найден, то возвращается пустая
+строка. Строку потом необходимо явно удалить (пустую удалять необязательно) */
 struct qstr tagfs_get_next_file(Storage stor, const struct TagMask on_mask,
     const struct TagMask off_mask, size_t* ino);
 

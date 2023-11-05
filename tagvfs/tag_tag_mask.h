@@ -74,7 +74,12 @@ size_t tagmask_on_bits_amount(const struct TagMask mask);
 void tagmask_set_tag(struct TagMask mask, size_t tag, bool state);
 
 
-/* ??? */
+/*! Заполняет маску данными из буфера. Если маска больше буфера, то остаток
+маски обнуляется. Если маска меньше буфера, то заполняются только данные,
+которые влезают в маску. Заполнение всегда успешно (ошибок не возвращается)
+\param mask маска, которая заполняется данными из буфера. Маска должна быть
+инициализирована (и желаемым размером). Исходные данные маски будут вычищены
+\param buf, buf_size буфер с данными для заполнения маски */
 void tagmask_fill_from_buffer(struct TagMask mask, void* buf, size_t buf_size);
 
 

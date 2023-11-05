@@ -101,6 +101,11 @@ struct qstr qstr_trim_header_if_exist(const struct qstr source, const struct qst
 \return строка с заголовком или пустая строка в случае ошибки */
 struct qstr qstr_add_header(const struct qstr source, const struct qstr header);
 
+/*! Возвращает признак, что передаваемая строка пустая
+\param str строка для проверки
+\return признак, что строка пустая */
+bool qstr_is_empty(const struct qstr str);
+
 /*! Общая функция поиска по директории */
 loff_t tagfs_common_dir_llseek(struct file* f, loff_t offset, int whence);
 

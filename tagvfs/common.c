@@ -123,6 +123,14 @@ struct qstr qstr_add_header(const struct qstr source, const struct qstr header) 
 }
 
 
+bool qstr_is_empty(const struct qstr str) {
+  WARN_ON(str.name && !str.len);
+  WARN_ON(!str.name && str.len);
+  return str.name == NULL;
+}
+
+
+
 loff_t tagfs_common_dir_llseek(struct file* f, loff_t offset, int whence) {
   switch (whence) {
     case 0: // absolute offset
