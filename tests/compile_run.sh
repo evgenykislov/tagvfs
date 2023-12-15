@@ -12,6 +12,7 @@ if ! [[ -d "${TESTDIR}" ]] ; then
 fi
 
 cp "${BUILDDIR}/tagvfs.ko" "${TESTDIR}"
+cp ${BUILDDIR}/*.gcno "${TESTDIR}"
 
 if [[ $(lsmod | grep tagvfs) ]]; then
   sudo rmmod tagvfs
@@ -20,7 +21,7 @@ fi
 sudo insmod ./${TESTDIR}/tagvfs.ko
 
 # Get debug information in case of memleak detection
-if $(sudo test -f /sys/kernel/debug/kmemleak); then
+if [[ ${TEST_MEMLEAK+x} ]]; then
   BASEPATH=$(pwd)
   pushd /sys/module/tagvfs/sections
   echo ".text .data .bss" > ${BASEPATH}/sections.txt
