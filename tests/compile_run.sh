@@ -12,7 +12,6 @@ if ! [[ -d "${TESTDIR}" ]] ; then
 fi
 
 cp "${BUILDDIR}/tagvfs.ko" "${TESTDIR}"
-cp ${BUILDDIR}/*.gcno "${TESTDIR}"
 
 if [[ $(lsmod | grep tagvfs) ]]; then
   sudo rmmod tagvfs
