@@ -68,11 +68,11 @@ struct qstr tagfs_get_tag_name_by_index(Storage stor, size_t index);
 size_t tagfs_get_tagino_by_name(Storage stor, const struct qstr name);
 
 
-/* Вычитывает информацию по активному тэгу с порядковым номером index (с нуля).
+/*! Вычитывает информацию по активному тэгу с порядковым номером index (с нуля).
 При подсчёте неактивные/удалённые тэги не учитываются. Если тэг не найден,
 то возвращается пустая строка и ino тэга, равный kNotFoundIno (-1).
 \param index - порядковый номер тэга (с нуля)
-??? маска?
+\param exclude_mask - макса битов, которые нужно при поиске исключить
 \param taginfo - возвращает ino этого тэга. Параметр может быть NULL
 \return строка с именем тэга. Строку необходимо потом удалить */
 struct qstr tagfs_get_nth_tag(Storage stor, size_t index,

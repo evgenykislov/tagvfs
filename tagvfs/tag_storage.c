@@ -1283,6 +1283,7 @@ size_t tagfs_get_tagino_by_name(Storage stor, const struct qstr name) {
 }
 
 
+// Описание в хедере
 struct qstr tagfs_get_nth_tag(Storage stor, size_t index,
     const struct TagMask exclude_mask, size_t* tagino) {
   size_t i;
@@ -1294,7 +1295,7 @@ struct qstr tagfs_get_nth_tag(Storage stor, size_t index,
   sr = (struct StorageRaw*)(stor);
   for (i = 0; i < sr->tag_record_max_amount; ++i) {
     if (tagmask_check_tag(exclude_mask, i)) { continue; }
-    if (ReadTagName(sr, index, &name) != 0) { continue; }
+    if (ReadTagName(sr, i, &name) != 0) { continue; }
     // Has found real/active tag. Check nth index
     if (cur_index != index) {
       free_qstr(&name);
@@ -1545,7 +1546,7 @@ int tagfs_add_new_tag(Storage stor, const struct qstr tag_name, size_t* tagino) 
   int res;
   size_t tag;
 
-  if (!stor) { return -EINVAL; }
+  BUG_ON(!stor);
   sr = (struct StorageRaw*)(stor);
   res =  AddNewTag(sr, tag_name.name, tag_name.len, &tag);
   if (res) { return res; }
