@@ -26,6 +26,7 @@ fi
 . ./clear.sh
 . ./compile_run.sh
 
+. ./test_base_functions.sh
 . ./test_copy.sh
 . ./test_same_filename_copy.sh
 
