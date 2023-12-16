@@ -25,6 +25,10 @@ struct ItemInternal {
   struct CacheItem Item;
 };
 
+
+void tagfs_print_cache_wo_lock(Cache cache);
+
+
 /*! Функция, вычисляющая хэш имени
 \param name строка (имя), по которой нужно сосчитать хэш
 \return значение хэша */
@@ -334,4 +338,21 @@ int tagfs_hold_ino(Cache cache, size_t ino) {
   // Пользовательские данные после ошибок create_add_item_wo_lock удалять не нужно, т.к. там всё NULL
 
   return res;
+}
+
+
+/*! Вывести в лог содержимое кэша */
+void tagfs_print_cache_wo_lock(Cache cache) {
+  struct CacheInternal* ci;
+  int bkt;
+  struct ItemInternal* item;
+
+  ci = (struct CacheInternal*)(cache);
+  for (bkt = 0, item = NULL; item == NULL && bkt < ci->CacheSize; ++bkt) {
+    struct hlist_node* tmp;
+    hlist_for_each_entry_safe(item, tmp, &ci->InoCache[bkt], InoNode) {
+      pr_info("Cache item: ino %d, hashed ino/name: %d/%d\n",
+          (int)item->Item.Ino, (int)item->InoHashed, (int)item->NameHashed);
+    }
+  }
 }
