@@ -8,6 +8,7 @@ fi
 echo -----
 echo "COPY: simple copy test"
 
+SCRIPT_PATH=$(pwd)
 pushd ${TESTDIR} > /dev/null
 
 TPATH=$(pwd)
@@ -54,6 +55,6 @@ fi
 
 echo "--- OK: COPY ---"
 
-sudo umount $(pwd)/copy/
+. ${SCRIPT_PATH}/comm_wait_umount.sh $(pwd)/copy/
 
 popd > /dev/null

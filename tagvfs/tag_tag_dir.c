@@ -114,6 +114,7 @@ struct dentry* tagfs_tag_dir_lookup(struct inode* dir, struct dentry *de,
 
   inode = tagfs_fills_dentry_by_linkfile_inode(sb, de, fileino + kFSRealFilesStartIno);
   if (!inode) { return ERR_PTR(-ENOMEM); }
+  d_set_d_op(de, &tagfs_tag_dir_negative_dentry_ops);
   return NULL;
 }
 

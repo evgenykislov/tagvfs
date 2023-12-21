@@ -13,6 +13,7 @@ SOURCES += \
   tag_module.c \
   tag_onlytags_dir.c \
   tag_storage.c \
+  tag_storage_cache.c \
   tag_tag_dir.c \
   tag_tag_mask.c
 
@@ -26,6 +27,7 @@ HEADERS += \
   tag_inode.h \
   tag_onlytags_dir.h \
   tag_storage.h \
+  tag_storage_cache.h \
   tag_tag_dir.h \
   tag_tag_mask.h
 
