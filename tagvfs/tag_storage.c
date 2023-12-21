@@ -1067,6 +1067,12 @@ int AddNewTag(struct StorageRaw* sr, const char* name, size_t name_len,
 
   WARN_ON(sr->tag_record_max_amount == 0);
 
+  // Проверим имя тэга на максимальную длину
+  if ((name_len + sizeof(struct TagHeader)) > sr->tag_record_size) {
+    if (tagino) { *tagino = kNotFoundIno; }
+    return -E2BIG;
+  }
+
   if (sr->last_added_tag_ino >= sr->tag_record_max_amount) {
     sr->last_added_tag_ino = 0;
   }
