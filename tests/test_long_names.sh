@@ -44,7 +44,10 @@ PRELONG_NAME="p${STR200}${STR50}"
 LONG_NAME="l${STR200}${STR50}${STR10}"
 
 mkdir "${TAG_DIR}/${PRELONG_NAME}"
-mkdir "${TAG_DIR}/${LONG_NAME}"
+set +o errexit
+# If filesystem rejects extralong tag name (and returns error) - it's normal/suitable behaviour
+mkdir "${TAG_DIR}/${LONG_NAME}" > /dev/null 2> /dev/null
+set -o errexit
 
 EXIST_PRELONG_TAG="0"
 EXIST_LONG_TAG="0"
@@ -63,11 +66,10 @@ if ! [[ "${EXIST_PRELONG_TAG}" == "1" ]]; then
 fi
 
 if [[ "${EXIST_LONG_TAG}" == "1" ]]; then
-  echo "ERROR: LONG NAMES: Wrong creation of long name tag. Long tag name should be cut during saving"
+  echo "ERROR: LONG NAMES: Wrong creation of long name tag. Long tag name should be cut during saving or hasn't created"
   exit 1
 fi
 
-ls ${TAG_DIR}
 
 # stop, start, repeat checks
 . ${SCRIPT_PATH}/comm_wait_umount.sh ${ROOT_PATH}/
@@ -93,9 +95,6 @@ if [[ "${EXIST_LONG_TAG}" == "1" ]]; then
   echo "ERROR: LONG NAMES: Wrong creation of long name tag"
   exit 1
 fi
-
-
-ls ${TAG_DIR}
 
 
 . ${SCRIPT_PATH}/comm_wait_umount.sh ${ROOT_PATH}/
