@@ -29,6 +29,7 @@ fi
 . ./test_base_functions.sh
 . ./test_copy.sh
 . ./test_same_filename_copy.sh
+. ./test_long_names.sh
 
 . ./stop.sh
 

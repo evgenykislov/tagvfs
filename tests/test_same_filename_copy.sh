@@ -8,6 +8,7 @@ fi
 echo -----
 echo "COPY: same filename copy test"
 
+SCRIPT_PATH=$(pwd)
 pushd ${TESTDIR} > /dev/null
 
 TPATH=$(pwd)
@@ -40,6 +41,6 @@ fi
 
 echo "--- OK: SAME FILENAME COPY ---"
 
-sudo umount "${RPATH}"
+. ${SCRIPT_PATH}/comm_wait_umount.sh "${RPATH}"
 
 popd > /dev/null

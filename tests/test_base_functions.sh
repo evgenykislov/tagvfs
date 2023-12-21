@@ -28,7 +28,7 @@ function CheckTag1Exist() {
 }
 
 
-function CheckBF1Exist() {
+function CheckBF1NoTag1Exist() {
   if ! [[ -L "${TAGDIR}/base_functions_001" ]]; then
     echo "ERROR: BASE FUNCTIONS: file base_functions_001 doesn't exist"
     exit 1
@@ -48,8 +48,42 @@ function CheckBF1Exist() {
     echo "ERROR: BASE FUNCTIONS: Wrong target for no-tag1/base_functions_001"
     exit 1
   fi
+
+  if [[ -L "${TAGDIR}/tag1/base_functions_001" ]]; then
+    echo "ERROR: BASE FUNCTIONS: Wrong existance of file tag1/base_functions_001"
+    exit 1
+  fi
+
 }
 
+
+function CheckBF1Tag1Exist() {
+  if ! [[ -L "${TAGDIR}/base_functions_001" ]]; then
+    echo "ERROR: BASE FUNCTIONS: file base_functions_001 doesn't exist"
+    exit 1
+  fi
+
+  if ! [[ "$(readlink -f "${TAGDIR}/base_functions_001")" == "${TPATH}/base_functions_001" ]] ; then
+    echo "ERROR: BASE FUNCTIONS: Wrong target for base_functions_001"
+    exit 1
+  fi
+
+  if ! [[ -L "${TAGDIR}/tag1/base_functions_001" ]]; then
+    echo "ERROR: BASE FUNCTIONS: file tag1/base_functions_001 doesn't exist"
+    exit 1
+  fi
+
+  if ! [[ "$(readlink -f "${TAGDIR}/tag1/base_functions_001")" == "${TPATH}/base_functions_001" ]] ; then
+    echo "ERROR: BASE FUNCTIONS: Wrong target for tag1/base_functions_001"
+    exit 1
+  fi
+
+  if [[ -L "${TAGDIR}/no-tag1/base_functions_001" ]]; then
+    echo "ERROR: BASE FUNCTIONS: Wrong existance of file no-tag1/base_functions_001"
+    exit 1
+  fi
+
+}
 
 # ------------------
 # ------------------
@@ -62,6 +96,8 @@ set -o errexit
 
 echo -----
 echo "TEST: base functions test"
+
+SCRIPT_PATH=$(pwd)
 
 pushd ${TESTDIR} > /dev/null
 
@@ -109,16 +145,20 @@ if [[ $(ln -s --target-directory="${TAGDIR}" "${TPATH}/base_functions_001" > /de
 fi
 set -o errexit
 
-CheckBF1Exist
+CheckBF1NoTag1Exist
 
 # stop, start, repeat checks
-sudo umount $(pwd)/base_functions/
+. ${SCRIPT_PATH}/comm_wait_umount.sh $(pwd)/base_functions/
 sudo mount -t tagvfs $(pwd)/base_functions.tag $(pwd)/base_functions/
+
 CheckTag1Exist
-CheckBF1Exist
+CheckBF1NoTag1Exist
 
-echo "--- OK: BASE FUNCTIONS ---"
+cp -P "${TAGDIR}/base_functions_001" "${TAGDIR}/tag1"
+CheckBF1Tag1Exist
 
-sudo umount $(pwd)/base_functions/
+. ${SCRIPT_PATH}/comm_wait_umount.sh $(pwd)/base_functions/
 
 popd > /dev/null
+
+echo --- OK: BASE FUNCTIONS ---
