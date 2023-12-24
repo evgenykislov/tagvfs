@@ -41,6 +41,6 @@ fi
 
 echo "--- OK: SAME FILENAME COPY ---"
 
-. ${SCRIPT_PATH}/comm_wait_umount.sh "${RPATH}"
+${SHELL} ${SCRIPT_PATH}/comm_wait_umount "${RPATH}"
 
 popd > /dev/null

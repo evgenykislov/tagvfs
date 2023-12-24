@@ -55,6 +55,6 @@ fi
 
 echo "--- OK: COPY ---"
 
-. ${SCRIPT_PATH}/comm_wait_umount.sh $(pwd)/copy/
+${SHELL} ${SCRIPT_PATH}/comm_wait_umount $(pwd)/copy/
 
 popd > /dev/null

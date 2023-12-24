@@ -148,7 +148,7 @@ set -o errexit
 CheckBF1NoTag1Exist
 
 # stop, start, repeat checks
-. ${SCRIPT_PATH}/comm_wait_umount.sh $(pwd)/base_functions/
+${SHELL} ${SCRIPT_PATH}/comm_wait_umount $(pwd)/base_functions/
 sudo mount -t tagvfs $(pwd)/base_functions.tag $(pwd)/base_functions/
 
 CheckTag1Exist
@@ -157,7 +157,7 @@ CheckBF1NoTag1Exist
 cp -P "${TAGDIR}/base_functions_001" "${TAGDIR}/tag1"
 CheckBF1Tag1Exist
 
-. ${SCRIPT_PATH}/comm_wait_umount.sh $(pwd)/base_functions/
+${SHELL} ${SCRIPT_PATH}/comm_wait_umount $(pwd)/base_functions/
 
 popd > /dev/null
 

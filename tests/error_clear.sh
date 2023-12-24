@@ -1,6 +1,6 @@
 #!/bin/bash
 
-. ./common.sh
+TESTDIR="test"
 
 pushd ${TESTDIR}
 
@@ -8,6 +8,7 @@ sudo umount base_functions
 sudo umount copy
 sudo umount same_filename_copy
 sudo umount long_names
+sudo umount only-tags-feature
 
 popd
 

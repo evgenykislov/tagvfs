@@ -1,21 +1,19 @@
 #!/bin/bash
 
-. ./common.sh
+set -o errexit
 
+if ! [[ ${TESTDIR+x} ]]; then
+  echo "ERROR: WRONG CONTEXT"
+  exit 1
+fi
+
+BUILDDIR="../tagvfs"
 pushd "${BUILDDIR}"
 # make clean
 make
 popd
 
-if ! [[ -d "${TESTDIR}" ]] ; then
-  mkdir "${TESTDIR}"
-fi
-
-cp "${BUILDDIR}/tagvfs.ko" "${TESTDIR}"
-
-if [[ $(lsmod | grep tagvfs) ]]; then
-  sudo rmmod tagvfs
-fi
+cp "${BUILDDIR}/tagvfs.ko" "${TESTDIR}"/
 
 sudo insmod ./${TESTDIR}/tagvfs.ko
 
@@ -29,3 +27,5 @@ if [[ ${TEST_MEMLEAK+x} ]]; then
 
   objdump -DS ./${TESTDIR}/tagvfs.ko > disasm.txt
 fi
+
+exit 0

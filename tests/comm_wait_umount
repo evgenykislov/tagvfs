@@ -4,8 +4,14 @@
 # Waits upto 10 seconds
 # $1 - mounted point for umounting
 
+
 set +o errexit
 
+if ! [[ -d $1 ]]; then
+  exit 0
+fi
+
+# Umount if folder exists only
 COUNTER=0
 SUCCESS=0
 while [[ $COUNTER -lt 100 ]]; do
@@ -37,3 +43,4 @@ if [[ $? != 0 ]]; then
   echo "ERROR umounting"
   exit 1
 fi
+
