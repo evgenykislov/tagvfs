@@ -1,0 +1,14 @@
+#!/bin/bash
+
+# Check file/directory existance by getting list of items
+# $1 full name of entity
+
+DIR=$(dirname "$1")
+NAME=$(basename "$1")
+for f in ${DIR}/* ; do
+  if [[ "$(basename "${f}")" == "${NAME}" ]]; then
+    exit 0
+  fi
+done
+
+exit 1

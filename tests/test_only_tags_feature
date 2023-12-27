@@ -15,11 +15,41 @@ ExitHandler() {
   ${SHELL} ${SCRIPT_PATH}/comm_wait_umount ${TESTDIR_PATH}/only-tags-feature
 }
 
+
+function CheckTag1Exist() {
+  EXIST_TAG1="0"
+  for f in ${TAGS_DIR}/* ; do
+    if [[ "$(basename $f)" == "tag1" ]]; then
+      EXIST_TAG1="1"
+    fi
+  done
+
+  if ! [[ "${EXIST_TAG1}" == "1" ]]; then
+    echo "ERROR: BASE FUNCTIONS: Tag tag1 is created but it hasn't listed in directory"
+    exit 1
+  fi
+
+  EXIST_TAG1="0"
+  for f in ${ONLY_TAGS_DIR}/* ; do
+    if [[ $(basename $f) == "tag1" ]]; then
+      EXIST_TAG1="1"
+    fi
+  done
+
+  if ! [[ "${EXIST_TAG1}" == "1" ]]; then
+    echo "ERROR: BASE FUNCTIONS: Tag tag1 is created but it hasn't listed in only-tags directory"
+    exit 1
+  fi
+}
+
+
 # ------------------
 # ------------------
 
 echo -----
 echo "TEST: only-tags feature test"
+
+set -o errexit
 
 pushd ${TESTDIR} > /dev/null
 TESTDIR_PATH=$(pwd)
@@ -29,53 +59,31 @@ ROOT_PATH="${TESTDIR_PATH}/only-tags-feature"
 mkdir ${ROOT_PATH}
 sudo mount -t tagvfs ${TESTDIR_PATH}/only-tags-feature.tag ${ROOT_PATH}/
 
-ONLY_TAGS_DIR=${RPATH}/only-tags
-
-set +o errexit
-
-if ! [[ -d asdfasdf ]]; then
-  echo succ
-fi
+TAGS_DIR=${ROOT_PATH}/tags
+ONLY_TAGS_DIR=${ROOT_PATH}/only-tags
 
 # Check tag creation
 # -----
-echo -- p1
-mkdir "${TAGDIR}/tag1"
-echo -- p2
+mkdir "${ONLY_TAGS_DIR}/tag1"
 
 set +o errexit
-if [[ $(mkdir ${TAGDIR}/tag1 > /dev/null 2> /dev/null) ]]; then
-  echo "ERROR: BASE FUNCTIONS: double creewtion of the same tag"
+if [[ $(mkdir ${ONLY_TAGS_DIR}/tag1 > /dev/null 2> /dev/null) ]]; then
+  echo "ERROR: BASE FUNCTIONS: double creation of the same tag"
   exit 1
 fi
 set -o errexit
 
-CheckTag1Exist
+${SHELL} ${SCRIPT_PATH}/comm_check_exist "${ONLY_TAGS_DIR}/tag1"
 
-
-# Check filelink creation and exstance into no-tags
-# -----
-touch base_functions_001
-ln -s --target-directory="${TAGDIR}" "${TPATH}/base_functions_001"
+rm -frd "${ONLY_TAGS_DIR}/tag1"
 
 set +o errexit
-if [[ $(ln -s --target-directory="${TAGDIR}" "${TPATH}/base_functions_001" > /dev/null 2> /dev/null) ]]; then
-  echo "ERROR: BASE FUNCTIONS: double creation of the same symbol link"
+${SHELL} ${SCRIPT_PATH}/comm_check_exist "${ONLY_TAGS_DIR}/tag1"
+if [[ $? -eq 0 ]]; then
+  echo "ERROR: ONLY-TAGS FEATURE: removing tag don't remove it"
   exit 1
 fi
 set -o errexit
-
-CheckBF1NoTag1Exist
-
-# stop, start, repeat checks
-${SHELL} ${SCRIPT_PATH}/comm_wait_umount $(pwd)/base_functions/
-sudo mount -t tagvfs $(pwd)/base_functions.tag $(pwd)/base_functions/
-
-CheckTag1Exist
-CheckBF1NoTag1Exist
-
-cp -P "${TAGDIR}/base_functions_001" "${TAGDIR}/tag1"
-CheckBF1Tag1Exist
 
 
 ${SHELL} ${SCRIPT_PATH}/comm_wait_umount ${TESTDIR}/only-tags-feature
