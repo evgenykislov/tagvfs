@@ -24,7 +24,8 @@ function PrintHelp() {
 
 function RunTest() {
 # $1 name of the test
-  ${SHELL} ./${1} > ${1}.txt 2> ${1}.txt
+  rm -f ${1}.txt
+  ${SHELL} ./${1} >> ${1}.txt 2>> ${1}.txt
   if ! [[ $? -eq 0 ]]; then
     echo "Test $1 FAILED"
     cat ${1}.txt
@@ -68,6 +69,7 @@ RunTest test_copy
 RunTest test_same_filename_copy
 RunTest test_long_names
 RunTest test_only_tags_feature
+RunTest test_only_files_feature
 
 if ! [[ ${SUMM_RES} -eq 0 ]]; then
   echo "ALL TESTS executed successfully"

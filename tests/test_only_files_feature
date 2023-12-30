@@ -1,0 +1,80 @@
+#!/bin/bash
+
+
+if ! [[ ${TESTDIR+x} ]]; then
+  echo "ERROR: WRONG CONTEXT"
+  exit 1
+fi
+
+# ---- TRAPS ---
+SCRIPT_PATH=$(pwd)
+TESTDIR_PATH=""
+
+trap 'ExitHandler' EXIT
+ExitHandler() {
+  ${SHELL} ${SCRIPT_PATH}/comm_wait_umount ${TESTDIR_PATH}/only-files-feature
+}
+
+
+# ------------------
+# ------------------
+
+echo -----
+echo "TEST: only-files feature test"
+
+set -o errexit
+
+pushd ${TESTDIR} > /dev/null
+TESTDIR_PATH=$(pwd)
+
+echo t-t0
+
+# Root path of mount point
+ROOT_PATH="${TESTDIR_PATH}/only-files-feature"
+mkdir ${ROOT_PATH}
+sudo mount -t tagvfs ${TESTDIR_PATH}/only-files-feature.tag ${ROOT_PATH}/
+
+echo t-t1
+
+TAGS_DIR=${ROOT_PATH}/tags
+ONLY_FILES_DIR=${ROOT_PATH}/only-files
+
+# Check file creation
+# -----
+touch ${TESTDIR_PATH}/only_files_001
+touch ${TESTDIR_PATH}/only_files_002
+ln -s --target-directory="${TAGS_DIR}" "${TESTDIR_PATH}/only_files_001"
+
+echo t-t2
+
+set +o errexit
+ln -s --target-directory="${TAGS_DIR}" "${TESTDIR_PATH}/only_files_001" > /dev/null 2> /dev/null
+if [[ $? -eq 0 ]]; then
+  echo "ERROR: ONLY-FILES: double creation of the same symbol link"
+  exit 1
+fi
+set -o errexit
+
+${SHELL} ${SCRIPT_PATH}/comm_check_exist ${ONLY_FILES_DIR}/only_files_001
+
+echo t-t4
+
+ln -s --target-directory="${ONLY_FILES_DIR}" "${TESTDIR_PATH}/only_files_002"
+echo ttz1 ----
+ls ${ONLY_FILES_DIR}
+${SHELL} ${SCRIPT_PATH}/comm_check_exist ${ONLY_FILES_DIR}/only_files_002
+echo tz2
+${SHELL} ${SCRIPT_PATH}/comm_check_exist ${TAGS_DIR}/only_files_002
+
+echo tt1
+# Find unexisted files
+# -----
+if [[ -L "${ONLY_FILES_DIR}/unexist" ]]: then
+  echo "ERROR: ONLY-FILES: filesystem find out uneixsted files"
+  exit 1
+fi
+
+echo tt2
+popd > /dev/null
+
+echo --- OK: only-files feature ---
