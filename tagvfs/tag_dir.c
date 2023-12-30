@@ -88,6 +88,7 @@ struct inode*  fill_dentry_by_new_directory_inode(struct super_block* sb,
 }
 
 
+// LCOV_EXCL_START
 void tagfs_printk_dentry(struct dentry* de) {
   pr_info("dentry: %px\n", de);
   if (!de) {
@@ -99,3 +100,4 @@ void tagfs_printk_dentry(struct dentry* de) {
       de->d_flags);
   tagfs_printk_inode(de->d_inode, 2);
 }
+// LCOV_EXCL_STOP

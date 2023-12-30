@@ -41,12 +41,15 @@ struct FileInfo {
   loff_t aftertag_pos; //!< Позиция в каталоге после последнего тэга (начинаются файлы)
 };
 
-void pr_info_FileInfo(const struct FileInfo* fi) {
+
+// LCOV_EXCL_START
+void tagfs_printk_FileInfo(const struct FileInfo* fi) {
   pr_info("FileInfo struct:\n");
   pr_info("last_iterate_pos %d, tag %u, file %u, aftertag %d\n",
       (int)fi->last_iterate_pos, (unsigned int)fi->last_iterate_tag,
       (unsigned int)fi->last_iterate_file, (int)fi->aftertag_pos);
 }
+// LCOV_EXCL_STOP
 
 
 struct dentry* tagfs_tag_dir_lookup(struct inode* dir, struct dentry *de,

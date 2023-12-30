@@ -192,6 +192,7 @@ bool tagmask_check_filter(const struct TagMask item, const struct TagMask on_mas
 }
 
 
+// LCOV_EXCL_START
 void tagmask_printk(const struct TagMask mask) {
   size_t i;
 
@@ -201,3 +202,4 @@ void tagmask_printk(const struct TagMask mask) {
   }
   pr_cont("\n");
 }
+// LCOV_EXCL_STOP

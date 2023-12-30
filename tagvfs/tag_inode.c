@@ -91,6 +91,8 @@ struct InodeInfo* get_inode_info(struct inode* nod) {
   return &(d->info);
 }
 
+
+// LCOV_EXCL_START
 void tagfs_printk_inode(const struct inode* ind, unsigned int indent) {
   #define kIndentStrSize 10
   char ind_str[kIndentStrSize + 1] = "          ";
@@ -109,3 +111,4 @@ void tagfs_printk_inode(const struct inode* ind, unsigned int indent) {
   pr_info("%s  i_count: %x\n", ind_str, atomic_read(&ind->i_count));
   pr_info("%s  i_sb: %p\n", ind_str, ind->i_sb);
 }
+// LCOV_EXCL_STOP
