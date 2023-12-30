@@ -1,6 +1,21 @@
 #!/bin/bash
 
 
+if ! [[ ${TESTDIR+x} ]]; then
+  echo "ERROR: WRONG CONTEXT"
+  exit 1
+fi
+
+# ---- TRAPS ---
+SCRIPT_PATH=$(pwd)
+TESTDIR_PATH=""
+
+trap 'ExitHandler' EXIT
+ExitHandler() {
+  ${SHELL} ${SCRIPT_PATH}/comm_wait_umount ${TESTDIR_PATH}/base_functions
+}
+
+
 function CheckTag1Exist() {
   EXIST_TAG1="0"
   for f in ${TAGDIR}/* ; do
@@ -102,6 +117,7 @@ SCRIPT_PATH=$(pwd)
 pushd ${TESTDIR} > /dev/null
 
 TPATH=$(pwd)
+TESTDIR_PATH=$(pwd)
 # Root path of mount point
 RPATH="${TPATH}/base_functions"
 
@@ -156,6 +172,11 @@ CheckBF1NoTag1Exist
 
 cp -P "${TAGDIR}/base_functions_001" "${TAGDIR}/tag1"
 CheckBF1Tag1Exist
+
+# Delete file (symlink) from tag1. File must be appeared in no-tag1 directory
+rm ${TAGDIR}/tag1/base_functions_001
+CheckBF1NoTag1Exist
+
 
 ${SHELL} ${SCRIPT_PATH}/comm_wait_umount $(pwd)/base_functions/
 
