@@ -40,6 +40,7 @@ enum FSSpecialName {
 };
 
 extern const size_t kNotFoundIno;
+struct MountOptions;
 
 typedef void* Storage;
 
@@ -53,6 +54,10 @@ int tagfs_init_storage(Storage* stor, const char* file_storage);
 /*! Освобождение хранилища, закрытие ресурсов.
 \param stor указатель на закрываемое хранилище. */
 void tagfs_release_storage(Storage* stor);
+
+/*! Возвращает опции для точки монтирования
+\return Указатель на структуру опциональных параметров. Не может быть NULL */
+struct MountOptions* tagfs_get_mount_options(Storage stor);
 
 /*! Сохранить/Сериализовать хранилище. Ошибок не возвращает */
 void tagfs_sync_storage(Storage stor);

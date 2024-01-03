@@ -29,6 +29,7 @@
 #include "tag_file.h"
 #include "tag_inode.h"
 #include "tag_onlytags_dir.h"
+#include "tag_options.h"
 #include "tag_storage.h"
 #include "tag_tag_dir.h"
 
@@ -251,6 +252,27 @@ static int fs_fill_superblock(struct super_block* sb, void* data, int silent) {
   if (!sb->s_root) { return -ENOMEM; }
 
   return 0;
+}
+
+
+/*! Разбор и применение опций, переданных при монтировании
+\param stor объект-хранилище
+\param options строка со списком опций, разделённых запятой. Тожет быть NULL */
+void fs_use_options(Storage stor, char* options) {
+  struct MountOptions* opt = tagfs_get_mount_options(stor);
+
+  while (options) {
+    char* val = strsep(&options, ",");
+    BUG_ON(opt == NULL);
+
+    if (strcmp(val, "direct") == 0) {
+      opt->DirectMode = true;
+      pr_info("TagVfs: Use direct mode for files access\n");
+      continue;
+    }
+  }
+
+
 }
 
 

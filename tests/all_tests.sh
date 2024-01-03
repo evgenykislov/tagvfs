@@ -70,6 +70,7 @@ RunTest test_same_filename_copy
 RunTest test_long_names
 RunTest test_only_tags_feature
 RunTest test_only_files_feature
+RunTest test_direct_inode
 
 if ! [[ ${SUMM_RES} -eq 0 ]]; then
   echo "ALL TESTS executed successfully"

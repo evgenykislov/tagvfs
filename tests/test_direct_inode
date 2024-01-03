@@ -1,0 +1,37 @@
+#!/bin/bash
+
+
+if ! [[ ${TESTDIR+x} ]]; then
+  echo "ERROR: WRONG CONTEXT"
+  exit 1
+fi
+
+# ---- TRAPS ---
+SCRIPT_PATH=$(pwd)
+TESTDIR_PATH=""
+
+trap 'ExitHandler' EXIT
+ExitHandler() {
+  ${SHELL} ${SCRIPT_PATH}/comm_wait_umount ${TESTDIR_PATH}/direct_inode
+}
+
+
+# ------------------
+# ------------------
+
+echo -----
+echo "TEST: direct inode feature test"
+
+set -o errexit
+
+pushd ${TESTDIR} > /dev/null
+TESTDIR_PATH=$(pwd)
+
+# Root path of mount point
+ROOT_PATH="${TESTDIR_PATH}/direct_inode"
+mkdir ${ROOT_PATH}
+sudo mount -o "1 2\, 3",это-непойми-что,option1,o0ption2, -o second,third -t tagvfs ${TESTDIR_PATH}/direct_inode.tag ${ROOT_PATH}/
+
+popd > /dev/null
+
+echo --- OK: direct_inode feature ---

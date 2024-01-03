@@ -20,6 +20,7 @@
 #include <linux/slab.h>
 
 #include "common.h"
+#include "tag_options.h"
 #include "tag_storage_cache.h"
 
 #define kTagHashBits 8
@@ -94,6 +95,8 @@ struct StorageRaw {
 
   Cache file_cache; //!< Кэш файловых записей. Если запись неактивна, то имя пустое. Для активной записи пользовательские данные - FileData
   Cache tag_cache; //!< Кэш тегов. Если тэг неактивный, то имя пустое. Пользовательские данные всегда NULL.
+
+  struct MountOptions options; //!< Опции монтирования файловой системы
 };
 
 
@@ -1235,7 +1238,10 @@ int RemoveTagFromAllFiles(struct StorageRaw* sr, size_t tagino) {
 
 
 int tagfs_init_storage(Storage* stor, const char* file_storage) {
+  struct StorageRaw* sr;
   int err;
+
+  BUG_ON(!stor);
 
   err = OpenTagFS(stor, file_storage);
   if (err < 0) {
@@ -1249,12 +1255,25 @@ int tagfs_init_storage(Storage* stor, const char* file_storage) {
       return err;
     }
   }
+
+  BUG_ON(!(*stor));
+  sr = (struct StorageRaw*)(*stor);
+  ClearMountOptions(&(sr->options));
   return 0;
 }
 
 
 void tagfs_release_storage(Storage* stor) {
   CloseTagFS(stor);
+}
+
+
+struct MountOptions* tagfs_get_mount_options(Storage stor) {
+  struct StorageRaw* sr;
+
+  BUG_ON(!stor);
+  sr = (struct StorageRaw*)(stor);
+  return &(sr->options);
 }
 
 
