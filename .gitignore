@@ -55,6 +55,6 @@ Makefile
 *.qmake.stash
 
 test_utils/
-build-test_utils-*/
+build-*/
 tests/*.txt
 *.txt.user
