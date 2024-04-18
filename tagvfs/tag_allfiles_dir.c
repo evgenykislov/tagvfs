@@ -107,6 +107,7 @@ int tagfs_allfiles_dir_symlink(struct inode* inod, struct dentry* de, const char
   Storage stor = inode_storage(inod);
 
   ino = tagfs_add_new_file(stor, name, de->d_name);
+  if (ino == kNotFoundIno) { return -EEXIST; }
   newnode = tagfs_create_inode(inod->i_sb, S_IFLNK | 0777, ino + kFSRealFilesStartIno);
   if (!newnode) {
     return -ENOMEM;

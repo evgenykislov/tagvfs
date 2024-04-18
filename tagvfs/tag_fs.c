@@ -257,7 +257,7 @@ static int fs_fill_superblock(struct super_block* sb, void* data, int silent) {
 
 /*! Разбор и применение опций, переданных при монтировании
 \param stor объект-хранилище
-\param options строка со списком опций, разделённых запятой. Тожет быть NULL */
+\param options строка со списком опций, разделённых запятой. Может быть NULL */
 void fs_use_options(Storage stor, char* options) {
   struct MountOptions* opt = tagfs_get_mount_options(stor);
 
@@ -271,8 +271,6 @@ void fs_use_options(Storage stor, char* options) {
       continue;
     }
   }
-
-
 }
 
 
@@ -283,6 +281,8 @@ struct dentry* fs_mount(struct file_system_type* fstype, int flags,
 
   res = tagfs_init_storage(&stor, dev_name);
   if (res) { return ERR_PTR(res); }
+  fs_use_options(stor, (char*)data);
+
   return mount_nodev(fstype, flags, stor, fs_fill_superblock);
 }
 

@@ -30,7 +30,20 @@ TESTDIR_PATH=$(pwd)
 # Root path of mount point
 ROOT_PATH="${TESTDIR_PATH}/direct_inode"
 mkdir ${ROOT_PATH}
-sudo mount -o "1 2\, 3",это-непойми-что,option1,o0ption2, -o second,third -t tagvfs ${TESTDIR_PATH}/direct_inode.tag ${ROOT_PATH}/
+sudo mount -o direct -t tagvfs ${TESTDIR_PATH}/direct_inode.tag ${ROOT_PATH}/
+TAG_PATH=${ROOT_PATH}/tags
+
+touch ${TESTDIR_PATH}/direct_inode_001
+touch ${TESTDIR_PATH}/direct_inode_002
+ln -s --target-directory="${TAG_PATH}" "${TESTDIR_PATH}/direct_inode_001"
+ln -s --target-directory="${TAG_PATH}" "${TESTDIR_PATH}/direct_inode_002"
+
+echo before remove file thought link
+ls -i -a -l ${TESTDIR_PATH}
+rm -f ${TAG_PATH}/direct_inode_001
+echo after remove file thought link
+ls -i -a -l ${TESTDIR_PATH}
+
 
 popd > /dev/null
 

@@ -16,6 +16,7 @@
 
 #include "tag_tag_dir.h"
 
+#include <linux/namei.h>
 #include <linux/slab.h>
 
 #include "common.h"
@@ -23,6 +24,7 @@
 #include "tag_dir.h"
 #include "tag_file.h"
 #include "tag_inode.h"
+#include "tag_options.h"
 #include "tag_storage.h"
 
 extern const struct dentry_operations tagfs_tag_dir_negative_dentry_ops;
@@ -63,9 +65,11 @@ struct dentry* tagfs_tag_dir_lookup(struct inode* dir, struct dentry *de,
   bool mask_suitable;
   struct qstr np;
   bool no_tag = false;
+  struct MountOptions* opts;
 
   sb = dir->i_sb;
   stor = super_block_storage(sb);
+  opts = tagfs_get_mount_options(stor);
 
   np = qstr_trim_header_if_exist(de->d_name, tagfs_get_no_prefix(stor));
   if (np.name) {
@@ -104,17 +108,60 @@ struct dentry* tagfs_tag_dir_lookup(struct inode* dir, struct dentry *de,
     return NULL;
   }
 
-  // Имя - это файл
+
+  pr_info("Lookup for %s\n", de->d_name.name);
+
+  // Имя - это файл. Наверное. Но точно не тэг.
+  // Проверим маску тэгов
+  mask_suitable = false;
   fileino = tagfs_get_fileino_by_name(stor, de->d_name, &mask);
-  mask_suitable = tagmask_check_filter(mask, dir_info->on_mask,
-      dir_info->off_mask);
-  tagmask_release(&mask);
-  if (!mask_suitable || fileino == kNotFoundIno) {
+  if (fileino != kNotFoundIno) {
+    mask_suitable = tagmask_check_filter(mask, dir_info->on_mask,
+        dir_info->off_mask);
+    tagmask_release(&mask);
+  }
+  if (!mask_suitable) {
     d_set_d_op(de, &tagfs_tag_dir_negative_dentry_ops);
     d_add(de, NULL);
     return NULL;
   }
 
+  pr_info("Lookup for %s - mask_suitable\n", de->d_name.name);
+
+  // Маска тэгов соответствует
+  // Заполним переданный dentry данными о inode
+  if (opts->DirectMode) {
+    struct qstr target = tagfs_get_file_link(stor, fileino);
+
+    pr_info("Looking-up found target: %s\n", target.name);
+
+    if (!qstr_is_empty(target)) {
+      struct path p;
+      int err = kern_path(target.name, 0, &p);
+      struct dentry* ext_de = p.dentry;
+      struct inode* ext_nod = ext_de->d_inode;
+      free_qstr(&target);
+
+      if (!err && ext_nod) {
+//        pr_info("Before add existed inode\n");
+//        tagfs_printk_dentry(p.dentry);
+
+//        ihold(ext_nod);
+//        dget(ext_de);
+//        d_add(de, nod);
+
+//        pr_info("After add existed inode\n");
+//        tagfs_printk_dentry(p.dentry);
+
+        path_put(&p);
+
+        return ext_de;
+      }
+    }
+  }
+
+  // Используем символьную ссылку: либо не включен "прямой" режим, либо ошибка
+  // в целевом файле
   inode = tagfs_fills_dentry_by_linkfile_inode(sb, de, fileino + kFSRealFilesStartIno);
   if (!inode) { return ERR_PTR(-ENOMEM); }
   d_set_d_op(de, &tagfs_tag_dir_negative_dentry_ops);
@@ -165,6 +212,9 @@ exist_err:
   } else {
     // Создаём новый файл
     ino = tagfs_add_new_file(stor, name, de->d_name);
+
+    pr_info("Create new file '%s' with ino %d\n", de->d_name.name, (int)ino);
+
     if (ino == kNotFoundIno) { return -EFAULT; }
     mask = tagmask_init_zero(tagfs_get_maximum_tags_amount(stor));
     if (tagmask_is_empty(mask)) { return -ENOMEM; }
@@ -203,6 +253,8 @@ int tagfs_tag_dir_unlink(struct inode* dir, struct dentry* de) {
   bool mask_bit;
 
   if (!fi) { return -ENOENT; }
+
+  pr_info("Remove file %s in fs superblock %p\n", de->d_name.name, dir->i_sb);
 
   if (fi->i_ino < kFSRealFilesStartIno || fi->i_ino > kFSRealFilesFinishIno) {
     // Удалять в дереве тэгов можно только файлы. Остально - запрещено.
