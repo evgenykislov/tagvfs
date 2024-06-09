@@ -1,0 +1,29 @@
+Экспорт в json
+
+Для выдачи во внешний формат используется json следующего вида:
+
+{
+  "settings": {
+    "tagrecordsize": 256,
+    "maxtags": 64,
+    "fileblocksize": 256,
+  },
+  "tags": [
+    {
+      "name": "tagname001"
+    },
+    {
+      "name": "tagname002"
+    }  
+  ],
+  "files": [
+    {
+      "name": "filename001",
+      "target": "linktofile001",
+      "tags": [
+        "tagname001",
+        "tagname002"
+      ]
+    }
+  ]
+}
